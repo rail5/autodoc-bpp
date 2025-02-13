@@ -1,0 +1,530 @@
+# bpp-autodoc
+# Copyright (C) 2025 Andrew S. Rightenburg
+
+## This is a simple and rather primitive tool
+## To automatically generate documentation for Bash++ classes and methods
+## By reading specially-formatted comments
+
+## The format is roughly as follows:
+
+## 1. Each file to be documented should start with a comment block
+##  Reading: #AUTODOC#
+##  If this block does not exist, autodoc will skip the file
+
+## 2. Each file should end with a comment block
+##  Reading: #ENDAUTODOC#
+##  This block is used to signal the end of the file
+
+## 3. Level headings
+##   Level headings are indicated by the number of '#' characters
+
+## 4. Keywords
+##   Recognized keywords:
+##     CLASS: - The name of the class
+##       This keyword must be followed by the class name
+##     METHOD: - The name of the method
+##       This keyword must be followed by the method scope and name
+##     PARAM: - The name of a parameter given to a method
+##       This keyword must be followed by the parameter scope, type and name
+##     MEMBER: - The name of a member variable
+##       This keyword must be followed by the member scope, type and name
+
+## Any heading which is not preceded by a recognized keyword is interpreted as a description
+## Of the heading above it
+
+## 5. Example
+##  #AUTODOC#
+##  #CLASS Class1
+##  ## Description of Class1
+##  ##METHOD public Method1
+##  ### Description of Method1
+##  ###PARAM primitive x
+
+@include_once <Array>
+
+@class Parameter {
+	@public type="Primitive"
+	@public name=""
+	@public description=""
+}
+
+@class Method {
+	@public name=""
+	@public scope="public"
+	@public description=""
+	@public @Array parameters
+
+	@public @method addParameter @Parameter* parameter {
+		@this.parameters.push @parameter
+	}
+
+	@public @method generateExample {
+		local example="@this.name"
+		local i=0
+		local numberOfParameters=@this.parameters.size
+		@Parameter* current_parameter
+
+		while [[ $i -lt $numberOfParameters ]]; do
+			@current_parameter=@(@this.parameters.at $i)
+			example="$example \$@{current_parameter.name}"
+			i=$((i + 1))
+		done
+
+		echo "$example"
+	}
+}
+
+@class Member {
+	@public type="Primitive"
+	@public name=""
+	@public scope="public"
+	@public description=""
+}
+
+@class Class {
+	@public file=""
+	@public name=""
+	@public description=""
+	@public @Array methods
+	@public @Array members
+
+	@public @method addMethod @Method* method_ {
+		@this.methods.push @method_
+	}
+
+	@public @method addMember @Member* member {
+		@this.members.push @member
+	}
+}
+
+@class Document {
+	@private directory=""
+	@private name=""
+	@private mode="xml"
+	@private drop_extensions="false"
+	@private output_directory=""
+	@private @Array classes
+
+	@public @method setMode mode {
+		# Acceptable modes are:
+		## xml - XML output
+		## md - Markdown output
+		local mode_lower=$(echo "$mode" | tr '[:upper:]' '[:lower:]')
+		if [[ "$mode_lower" == "xml" || "$mode_lower" == "md" ]]; then
+			@this.mode="$mode_lower"
+		else
+			echo "Error: Invalid mode '$mode'. Acceptable modes are 'xml' or 'md'."
+			exit 1
+		fi
+	}
+
+	@public @method setDropExtensions boolean {
+		@this.drop_extensions="$boolean"
+	}
+
+	@public @method setOutputDirectory directory {
+		@this.output_directory="$directory"
+	}
+
+	@public @method addClass @Class* class_ {
+		@this.classes.push @class_
+	}
+
+	@public @method setDirectory directory {
+		@this.directory="$directory"
+	}
+
+	@public @method setName name {
+		@this.name="$name"
+	}
+
+	@public @method getDirectory {
+		echo "@this.directory"
+	}
+
+	@public @method getName {
+		echo "@this.name"
+	}
+
+
+	@public @method scanFile file {
+		local confirmation=@(head -n 1 "$file" | grep "#AUTODOC#")
+		if [[ -z "$confirmation" ]]; then
+			return
+		fi
+
+		local current_level_heading=0
+
+		@Class* current_class
+		local class_level_heading=0
+
+		@Member* current_member
+		local member_level_heading=0
+
+		@Method* current_method
+		local method_level_heading=0
+
+		@Parameter* current_parameter
+		local parameter_level_heading=0
+		
+
+		local fileContents outputLines
+		IFS= read -r -d '' fileContents < <(cat "$file")
+		mapfile -t outputLines < <(echo "$fileContents")
+
+		local i=0
+		while [[ $i -lt ${#outputLines[@]} ]]; do
+			local line="${outputLines[$i]}"
+			local level_heading=@(echo "$line" | grep -o -P "^([ \t\r]*)#+")
+			if [[ -z "$level_heading" ]]; then
+				i=$((i + 1))
+				continue
+			fi
+			# Get the number of '#'s
+			local level_heading_length=${#level_heading}
+			local keyword=@(echo "$line" | grep -o -P "(?<=^$level_heading)[A-Z]+")
+			# Remove '#'s from the keyword
+			keyword=@(echo "$keyword" | tr -d "#")
+			# Split by spaces
+			local words=(@(echo "$line" | tr -s " "))
+
+			# Trim leading whitespace and #s to get descriptions
+			local description=@(echo "$line" | sed -E "s/^[ \t\r]*#+[ \t\r]*//")
+
+			if [[ -z "$keyword" ]]; then
+				# This is a description
+				if [[ @current_member != @nullptr ]]; then
+					@current_member.description="$description"
+					@current_class.addMember @current_member
+					@current_member=@nullptr
+				elif [[ @current_parameter != @nullptr ]]; then
+					@current_parameter.description="$description"
+					@current_method.addParameter @current_parameter
+					@current_parameter=@nullptr
+				elif [[ @current_method != @nullptr ]]; then
+					@current_method.description="$description"
+				elif [[ @current_class != @nullptr ]]; then
+					@current_class.description="$description"
+				fi
+			fi
+
+			if [[ "$keyword" == "CLASS" ]]; then
+				if [[ @current_class != @nullptr ]]; then
+					@this.addClass @current_class
+					@current_method=@nullptr
+					@current_member=@nullptr
+					@current_parameter=@nullptr
+				fi
+				@current_class=@new Class
+				@current_class.name="${words[1]}"
+
+				if [[ "@this.drop_extensions" == "true" ]]; then
+					@current_class.file="@(basename -s .bpp $file)"
+				else
+					@current_class.file="@(basename $file)"
+				fi
+			elif [[ "$keyword" == "MEMBER" ]]; then
+				if [[ @current_class == @nullptr ]]; then
+					echo "Error: Member found outside of class"
+					echo -e "Line:\n---\n$line\n---"
+					exit 1
+				fi
+				if [[ @current_member != @nullptr ]]; then
+					@current_class.addMember @current_member
+				fi
+				if [[ @current_parameter != @nullptr ]]; then
+					@current_method.addParameter @current_parameter
+					@current_parameter=@nullptr
+				fi
+				if [[ @current_method != @nullptr ]]; then
+					@current_class.addMethod @current_method
+					@current_method=@nullptr
+				fi
+				@current_member=@new Member
+				@current_member.scope="${words[1]}"
+				@current_member.type="${words[2]}"
+				@current_member.name="${words[3]}"
+			elif [[ "$keyword" == "METHOD" ]]; then
+				if [[ @current_class == @nullptr ]]; then
+					echo "Error: Method found outside of class"
+					echo -e "Line:\n---\n$line\n---"
+					exit 1
+				fi
+				if [[ @current_parameter != @nullptr ]]; then
+					@current_method.addParameter @current_parameter
+					@current_parameter=@nullptr
+				fi
+				if [[ @current_method != @nullptr ]]; then
+					@current_class.addMethod @current_method
+				fi
+				if [[ @current_member != @nullptr ]]; then
+					@current_class.addMember @current_member
+					@current_member=@nullptr
+				fi
+				@current_method=@new Method
+				@current_method.scope="${words[1]}"
+				@current_method.name="${words[2]}"
+			elif [[ "$keyword" == "PARAM" ]]; then
+				if [[ @current_method == @nullptr ]]; then
+					echo "Error: Parameter found outside of method"
+					echo -e "Line:\n---\n$line\n---"
+					exit 1
+				fi
+				if [[ @current_parameter != @nullptr ]]; then
+					@current_method.addParameter @current_parameter
+				fi
+				@current_parameter=@new Parameter
+				@current_parameter.type="${words[1]}"
+				@current_parameter.name="${words[2]}"
+			elif [[ "$keyword" == "ENDAUTODOC" ]]; then
+				if [[ @current_member != @nullptr ]]; then
+					@current_class.addMember @current_member
+				fi
+				if [[ @current_parameter != @nullptr ]]; then
+					@current_method.addParameter @current_parameter
+				fi
+				if [[ @current_method != @nullptr ]]; then
+					@current_class.addMethod @current_method
+				fi
+				if [[ @current_class != @nullptr ]]; then
+					@this.addClass @current_class
+				fi
+				break
+			fi
+
+			i=$((i + 1))
+		done
+	}
+
+	@public @method scanDirectory {
+		local files=(@(find "@this.directory" -type f -name "*.bpp"))
+		local i=0
+		while [[ $i -lt ${#files[@]} ]]; do
+			@this.scanFile "${files[$i]}"
+			i=$((i + 1))
+		done
+	}
+
+	@public @method print {
+		local documentOpen="<document>\n" documentClose="</document>\n"
+		local documentNameOpen="	<name>" documentNameClose="</name>\n"
+		local classOpen="	<class>\n" classClose="	</class>\n"
+		local classFileOpen="		<file>" classFileClose="</file>\n"
+		local classNameOpen="		<name>" classNameClose="</name>\n"
+		local classDescriptionOpen="		<description>" classDescriptionClose="</description>\n"
+		local memberSectionOpen=""
+		local memberOpen="		<member>\n" memberClose="		</member>\n"
+		local memberNameOpen="			<name>" memberNameClose="</name>\n"
+		local memberTypeOpen="			<type>" memberTypeClose="</type>\n"
+		local memberScopeOpen="			<scope>" memberScopeClose="</scope>\n"
+		local memberScopeKeywordOpen=""
+		local memberDescriptionOpen="			<description>" memberDescriptionClose="</description>\n"
+		local methodSectionOpen=""
+		local methodOpen="		<method>\n" methodClose="		</method>\n"
+		local methodNameOpen="			<name>" methodNameClose="</name>\n"
+		local methodScopeOpen="			<scope>" methodScopeClose="</scope>\n"
+		local methodScopeKeywordOpen=""
+		local methodDescriptionOpen="			<description>" methodDescriptionClose="</description>\n"
+		local parameterSectionOpen=""
+		local parameterOpen="			<parameter>\n" parameterClose="			</parameter>\n"
+		local parameterNameOpen="				<name>" parameterNameClose="</name>\n"
+		local parameterTypeOpen="				<type>" parameterTypeClose="</type>\n"
+		local parameterDescriptionOpen="				<description>" parameterDescriptionClose="</description>\n"
+		local exampleMethodUsageOpen="			<example>" exampleMethodUsageClose="</example>\n"
+
+		if [[ "@this.mode" == "md" ]]; then
+			documentOpen="" documentClose="\n"
+			documentNameOpen="# " documentNameClose="\n"
+			classOpen="" classClose="\n"
+			classFileOpen="\n\`\@include <" classFileClose=">\`\n\n"
+			classNameOpen="\n# Class: " classNameClose="\n\n"
+			classDescriptionOpen="" classDescriptionClose="\n"
+			memberSectionOpen="\n## Data Members\n\n"
+			memberOpen="" memberClose="\n"
+			memberNameOpen=" - \`" memberNameClose="\`\n"
+			memberTypeOpen="   - **Type**: \`" memberTypeClose="\`\n"
+			memberScopeOpen="   - **Scope**: " memberScopeKeywordOpen="\`" memberScopeClose="\`\n"
+			memberDescriptionOpen="   - " memberDescriptionClose="\n"
+			methodSectionOpen="\n## Methods\n\n"
+			methodOpen="" methodClose="\n"
+			methodNameOpen="### " methodNameClose="\n\n"
+			methodScopeOpen="**Scope**: " methodScopeKeywordOpen="\`" methodScopeClose="\`\n\n"
+			methodDescriptionOpen="" methodDescriptionClose="\n"
+			parameterSectionOpen="\n#### Parameters\n\n"
+			parameterOpen="" parameterClose="\n"
+			parameterNameOpen=" - \`" parameterNameClose="\`\n"
+			parameterTypeOpen="   - **Type**: \`" parameterTypeClose="\`\n"
+			parameterDescriptionOpen="   - " parameterDescriptionClose="\n"
+			exampleMethodUsageOpen="\nUsage: \`" exampleMethodUsageClose="\`\n"
+		fi
+
+		local i=0
+		@Class* current_class
+		@Method* current_method
+		@Parameter* current_parameter
+		@Member* current_member
+		local size=@this.classes.size
+
+		if [[ -z "@this.output_directory" ]]; then
+			echo -n -e "$documentOpen"
+			echo -n -e "$documentNameOpen@this.name$documentNameClose"
+		fi
+		while [[ $i -lt $size ]]; do
+			@current_class=@(@this.classes.at $i)
+
+			local output_file="/proc/self/fd/1"
+			if ! [[ -z "@this.output_directory" ]]; then
+				output_file="@this.output_directory/@{current_class.name}.@{this.mode}"
+			fi
+
+			echo -n -e "$classOpen" > "$output_file"
+			echo -n -e "$classNameOpen@{current_class.name}$classNameClose" >> "$output_file"
+			echo -n -e "$classFileOpen@{current_class.file}$classFileClose" >> "$output_file"
+			echo -n -e "$classDescriptionOpen@{current_class.description}$classDescriptionClose" >> "$output_file"
+			local j=0
+			local membersSize=@(@current_class.members.size)
+			echo -n -e "$memberSectionOpen" >> "$output_file"
+			while [[ $j -lt $membersSize ]]; do
+				@current_member=@(@current_class.members.at $j)
+				echo -n -e "$memberOpen" >> "$output_file"
+				echo -n -e "$memberNameOpen\@@{current_class.name}.@{current_member.name}$memberNameClose" >> "$output_file"
+				echo -n -e "$memberTypeOpen@{current_member.type}$memberTypeClose" >> "$output_file"
+				local scope_color_coding=""
+				local scope_color_coding_end="</span>\n"
+				case "@{current_member.scope}" in
+					"public")
+						scope_color_coding="<span style=\"color: green;\">"
+						;;
+					"protected")
+						scope_color_coding="<span style=\"color: purple;\">"
+						;;
+					"private")
+						scope_color_coding="<span style=\"color: red;\">"
+						;;
+				esac
+
+				if [[ "@this.mode" != "md" ]]; then
+					scope_color_coding=""
+					scope_color_coding_end=""
+				fi
+				echo -n -e "$memberScopeOpen${scope_color_coding}$memberScopeKeywordOpen@{current_member.scope}$memberScopeClose${scope_color_coding_end}" >> "$output_file"
+				echo -n -e "$memberDescriptionOpen" >> "$output_file"
+				echo -n "@{current_member.description}" >> "$output_file"
+				echo -n -e "$memberDescriptionClose" >> "$output_file"
+				echo -n -e "$memberClose" >> "$output_file"
+				j=$((j + 1))
+			done
+
+			local j=0
+			local methodsSize=@(@current_class.methods.size)
+			echo -n -e "$methodSectionOpen" >> "$output_file"
+			while [[ $j -lt $methodsSize ]]; do
+				@current_method=@(@current_class.methods.at $j)
+				echo -n -e "$methodOpen" >> "$output_file"
+				echo -n -e "$methodNameOpen\@@{current_class.name}.@{current_method.name}$methodNameClose" >> "$output_file"
+				local scope_color_coding=""
+				local scope_color_coding_end="</span>\n"
+				case "@{current_method.scope}" in
+					"public")
+						scope_color_coding="<span style=\"color: green;\">"
+						;;
+					"protected")
+						scope_color_coding="<span style=\"color: purple;\">"
+						;;
+					"private")
+						scope_color_coding="<span style=\"color: red;\">"
+						;;
+				esac
+
+				if [[ "@this.mode" != "md" ]]; then
+					scope_color_coding=""
+					scope_color_coding_end=""
+				fi
+				echo -n -e "$methodScopeOpen${scope_color_coding}$methodScopeKeywordOpen@{current_method.scope}$methodScopeClose${scope_color_coding_end}" >> "$output_file"
+				echo -n -e "$methodDescriptionOpen@{current_method.description}$methodDescriptionClose" >> "$output_file"
+				echo -n -e "$exampleMethodUsageOpen\@@{current_class.name}.@{current_method.generateExample}$exampleMethodUsageClose" >> "$output_file"
+				local k=0
+				local parametersSize=@(@current_method.parameters.size)
+				echo -n -e "$parameterSectionOpen" >> "$output_file"
+				while [[ $k -lt $parametersSize ]]; do
+					@current_parameter=@(@current_method.parameters.at $k)
+					echo -n -e "$parameterOpen" >> "$output_file"
+					echo -n -e "$parameterNameOpen@{current_parameter.name}$parameterNameClose" >> "$output_file"
+					echo -n -e "$parameterTypeOpen@{current_parameter.type}$parameterTypeClose" >> "$output_file"
+					echo -n -e "$parameterDescriptionOpen@{current_parameter.description}$parameterDescriptionClose" >> "$output_file"
+					echo -n -e "$parameterClose" >> "$output_file"
+					k=$((k + 1))
+				done
+				echo -n -e "$methodClose" >> "$output_file"
+				j=$((j + 1))
+			done
+			echo -n -e "$classClose" >> "$output_file"
+			i=$((i + 1))
+		done
+		if [[ -z "@this.output_directory" ]]; then
+			echo -n -e "$documentClose"
+		fi
+	}
+}
+
+function displayHelp() {
+	echo "Usage: autodoc-bpp -d <directory> -n <name> [options]"
+	echo "Options:"
+	echo "  -d <directory>   The directory to scan to create documentation"
+	echo "  -n <name>        The name of the document"
+	echo "  -m <mode>        The output mode. Acceptable modes are 'xml' and 'md'"
+	echo "  -e               Drop extensions from file names in output"
+	echo "  -o <directory>   Output each class to a separate file in the given directory"
+}
+
+directory_to_scan=""
+document_name=""
+mode="xml"
+drop_extensions="false"
+output_directory=""
+
+while getopts "ed:m:n:o:" opt; do
+	case $opt in
+		e)
+			drop_extensions="true"
+			;;
+		d)
+			directory_to_scan="$OPTARG"
+			;;
+		m)
+			mode="$OPTARG"
+			;;
+		n)
+			document_name="$OPTARG"
+			;;
+		o)
+			output_directory="$OPTARG"
+			;;
+		\?)
+			displayHelp
+			exit 1
+			;;
+	esac
+done
+
+if ! [[ -d "$directory_to_scan" ]]; then
+	echo "Error: $directory_to_scan is not a directory"
+	displayHelp
+	exit 1
+fi
+
+if [[ -z "$document_name" ]]; then
+	echo "Error: No document name given"
+	displayHelp
+	exit 1
+fi
+
+@Document doc
+@doc.setDirectory "$directory_to_scan"
+@doc.setName "$document_name"
+@doc.setMode "$mode"
+@doc.setDropExtensions "$drop_extensions"
+@doc.setOutputDirectory "$output_directory"
+
+@doc.scanDirectory
+@doc.print
