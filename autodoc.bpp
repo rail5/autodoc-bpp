@@ -297,7 +297,7 @@
 	}
 
 	@public @method scanDirectory {
-		local files=(@(find "@this.directory" -type f -name "*.bpp"))
+		local files=(@(find "@this.directory" -type f))
 		local i=0
 		while [[ $i -lt ${#files[@]} ]]; do
 			@this.scanFile "${files[$i]}"
