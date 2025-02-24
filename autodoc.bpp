@@ -40,8 +40,6 @@
 ##  ### Description of Method1
 ##  ###PARAM primitive x
 
-@include_once <Array>
-
 @class Parameter {
 	@public type="Primitive"
 	@public name=""
@@ -52,20 +50,20 @@
 	@public name=""
 	@public scope="public"
 	@public description=""
-	@public @Array parameters
+	@public parameters=()
 
 	@public @method addParameter @Parameter* parameter {
-		@this.parameters.push @parameter
+		@this.parameters+=("@parameter")
 	}
 
 	@public @method generateExample {
 		local example="@this.name"
 		local i=0
-		local numberOfParameters=@this.parameters.size
+		local numberOfParameters=@{#this.parameters[@]}
 		@Parameter* current_parameter
 
 		while [[ $i -lt $numberOfParameters ]]; do
-			@current_parameter=@(@this.parameters.at $i)
+			@current_parameter=@{this.parameters[$i]}
 			example="$example \$@{current_parameter.name}"
 			i=$((i + 1))
 		done
@@ -85,15 +83,15 @@
 	@public file=""
 	@public name=""
 	@public description=""
-	@public @Array methods
-	@public @Array members
+	@public methods=()
+	@public members=()
 
 	@public @method addMethod @Method* method_ {
-		@this.methods.push @method_
+		@this.methods+=("@method_")
 	}
 
 	@public @method addMember @Member* member {
-		@this.members.push @member
+		@this.members+=("@member")
 	}
 }
 
@@ -103,7 +101,7 @@
 	@private mode="xml"
 	@private drop_extensions="false"
 	@private output_directory=""
-	@private @Array classes
+	@private classes=()
 
 	@public @method setMode mode {
 		# Acceptable modes are:
@@ -127,7 +125,7 @@
 	}
 
 	@public @method addClass @Class* class_ {
-		@this.classes.push @class_
+		@this.classes+=("@class_")
 	}
 
 	@public @method setDirectory directory {
@@ -369,14 +367,14 @@
 		@Method* current_method
 		@Parameter* current_parameter
 		@Member* current_member
-		local size=@this.classes.size
+		local size=@{#this.classes[@]}
 
 		if [[ -z "@this.output_directory" ]]; then
 			echo -n -e "$documentOpen"
 			echo -n -e "$documentNameOpen@this.name$documentNameClose"
 		fi
 		while [[ $i -lt $size ]]; do
-			@current_class=@(@this.classes.at $i)
+			@current_class=@{this.classes[$i]}
 
 			local output_file="/proc/self/fd/1"
 			if ! [[ -z "@this.output_directory" ]]; then
@@ -388,10 +386,10 @@
 			echo -n -e "$classFileOpen@{current_class.file}$classFileClose" >> "$output_file"
 			echo -n -e "$classDescriptionOpen@{current_class.description}$classDescriptionClose" >> "$output_file"
 			local j=0
-			local membersSize=@(@current_class.members.size)
+			local membersSize=@{#current_class.members[@]}
 			echo -n -e "$memberSectionOpen" >> "$output_file"
 			while [[ $j -lt $membersSize ]]; do
-				@current_member=@(@current_class.members.at $j)
+				@current_member=@{current_class.members[$j]}
 				echo -n -e "$memberOpen" >> "$output_file"
 				echo -n -e "$memberNameOpen\@@{current_class.name}.@{current_member.name}$memberNameClose" >> "$output_file"
 				echo -n -e "$memberTypeOpen@{current_member.type}$memberTypeClose" >> "$output_file"
@@ -422,10 +420,10 @@
 			done
 
 			local j=0
-			local methodsSize=@(@current_class.methods.size)
+			local methodsSize=@{#current_class.methods[@]}
 			echo -n -e "$methodSectionOpen" >> "$output_file"
 			while [[ $j -lt $methodsSize ]]; do
-				@current_method=@(@current_class.methods.at $j)
+				@current_method=@{current_class.methods[$j]}
 				echo -n -e "$methodOpen" >> "$output_file"
 				echo -n -e "$methodNameOpen\@@{current_class.name}.@{current_method.name}$methodNameClose" >> "$output_file"
 				local scope_color_coding=""
@@ -450,10 +448,10 @@
 				echo -n -e "$methodDescriptionOpen@{current_method.description}$methodDescriptionClose" >> "$output_file"
 				echo -n -e "$exampleMethodUsageOpen\@@{current_class.name}.@{current_method.generateExample}$exampleMethodUsageClose" >> "$output_file"
 				local k=0
-				local parametersSize=@(@current_method.parameters.size)
+				local parametersSize=@{#current_method.parameters[@]}
 				echo -n -e "$parameterSectionOpen" >> "$output_file"
 				while [[ $k -lt $parametersSize ]]; do
-					@current_parameter=@(@current_method.parameters.at $k)
+					@current_parameter=@{current_method.parameters[$k]}
 					echo -n -e "$parameterOpen" >> "$output_file"
 					echo -n -e "$parameterNameOpen@{current_parameter.name}$parameterNameClose" >> "$output_file"
 					echo -n -e "$parameterTypeOpen@{current_parameter.type}$parameterTypeClose" >> "$output_file"
