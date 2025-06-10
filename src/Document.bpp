@@ -1,0 +1,477 @@
+#AUTODOC#
+
+@include_once "Element.bpp"
+@include_once "Member.bpp"
+@include_once "Method.bpp"
+@include_once "Parameter.bpp"
+@include_once "Class.bpp"
+
+@include_once <Stack>
+
+#CLASS Document
+## Represents a Bash++ source file for which we will generate documentation.
+@class Document {
+	##MEMBER private Primitive directory
+	### The directory where the document is located.
+	@private directory
+
+	##MEMBER private Primitive name
+	### The name of the document (without the .bpp extension).
+	@private name
+
+	##MEMBER private Primitive mode
+	### The format of the generated documentation. (xml or md)
+	@private mode="xml"
+
+	##MEMBER private Primitive drop_extensions
+	### Whether to drop the .bpp extension from the file names in the documentation.
+	@private drop_extensions="false"
+
+	##MEMBER private Primitive output_directory
+	### The directory where the generated documentation will be saved.
+	@private output_directory
+
+	##MEMBER private Primitive classes
+	### An array of pointers to Class objects that represent the classes defined in the document.
+	@private classes=()
+
+	##METHOD public setMode
+	### Sets the mode of the document.
+	###PARAM Primitive mode_
+	#### The mode to set (xml or md).
+	@public @method setMode mode {
+		local mode_lower=$(echo "$mode" | tr '[:upper:]' '[:lower:]')
+		if [[ "$mode_lower" == "xml" || "$mode_lower" == "md" ]]; then
+			@this.mode="$mode_lower"
+		else
+			echo "Error: Invalid mode '$mode'. Valid modes are 'xml' or 'md'."
+			exit 1
+		fi
+	}
+
+	##METHOD public setDropExtensions
+	### Sets whether to drop the .bpp extension from the file names in the documentation.
+	###PARAM Primitive boolean
+	#### 'true' or 'false'
+	@public @method setDropExtensions boolean {
+		@this.drop_extensions=$(echo "$boolean" | tr '[:upper:]' '[:lower:]')
+	}
+
+	##METHOD public setOutputDirectory
+	### Sets the directory where the generated documentation will be saved.
+	###PARAM Primitive directory
+	#### The directory to set.
+	@public @method setOutputDirectory directory {
+		if [[ -d "$directory" ]]; then
+			@this.output_directory="$directory"
+		else
+			echo "Error: Directory '$directory' does not exist."
+			exit 1
+		fi
+	}
+
+	##METHOD public addClass
+	### Adds a class to the document.
+	###PARAM Class* class_
+	#### A pointer to a Class object that represents the class to add.
+	@public @method addClass @Class* class_ {
+		if [[ @class_ == @nullptr ]]; then
+			echo "Error: Cannot add a null class."
+			exit 1
+		fi
+		@this.classes+=("@class_")
+	}
+
+	##METHOD public setDirectory
+	### Sets the directory where the source document is located.
+	###PARAM Primitive directory
+	#### The directory to set.
+	@public @method setDirectory directory {
+		if [[ -d "$directory" ]]; then
+			@this.directory="$directory"
+		else
+			echo "Error: Directory '$directory' does not exist."
+			exit 1
+		fi
+	}
+
+	##METHOD public setName
+	### Sets the name of the document (without the .bpp extension).
+	###PARAM Primitive name
+	#### The name to set.
+	@public @method setName name {
+		if [[ -n "$name" ]]; then
+			@this.name="$name"
+		else
+			echo "Error: Name cannot be empty."
+			exit 1
+		fi
+	}
+
+	##METHOD public getDirectory
+	### Echoes the directory where the source document is located.
+	@public @method getDirectory {
+		echo "@this.directory"
+	}
+
+	##METHOD public getName
+	### Echoes the name of the document (without the .bpp extension).
+	@public @method getName {
+		echo "@this.name"
+	}
+
+	##METHOD public scanFile
+	### Scans the source file for classes to document
+	###PARAM Primitive file
+	#### The file to scan.
+	@public @method scanFile file {
+		local confirmation=$(head -n 1 "$file" | grep -Eo '^\s*#\s*AUTODOC#')
+		if [[ -z "$confirmation" ]]; then
+			return
+		fi
+
+		@Stack element_stack
+		local class_name method_name
+
+		local fileContents outputLines
+		IFS= read -r -d '' fileContents < <(cat "$file")
+		mapfile -t outputLines < <(echo "$fileContents")
+
+		local i=0
+
+		while [[ $i -lt ${#outputLines[@]} ]]; do
+			local line="${outputLines[$i]}"
+			local level_heading=$(echo "$line" | grep -o -P "^([ \t\r]*)#+")
+			if [[ -z "$level_heading" ]]; then
+				i=$((i + 1))
+				continue
+			fi
+
+			local keyword=$(echo "$line" | grep -o -P "(?<=^$level_heading)[A-Z]+" | tr -d "#")
+			local words=($(echo "$line" | tr -s " "))
+			local description=$(echo "$line" | sed -E "s/^[ \t\r]*#+[ \t\r]*//")
+
+			case "$keyword" in
+				"CLASS")
+					if [[ @element_stack.empty != "true" ]]; then
+						@Class* previous_class=@dynamic_cast<Class> @element_stack.top
+						if [[ @previous_class == @nullptr ]]; then
+							echo "Error: A class definition cannot be nested inside another class or method."
+							echo -e "Line:\n---\n$line\n---"
+							exit 1
+						fi
+
+						@this.addClass @element_stack.pop
+					fi
+					@Class* new_class=@new Class
+					@new_class.name="${words[1]}"
+					class_name=@new_class.name
+					echo "Parsing class @new_class.name"
+					if [[ @this.drop_extensions == "true" ]]; then
+						@new_class.file=$(basename -s .bpp "$file")
+					else
+						@new_class.file=$(basename "$file")
+					fi
+					@element_stack.push @new_class
+					;;
+				"MEMBER")
+					@Class* current_class=@dynamic_cast<Class> @element_stack.top
+					@Member* previous_member=@dynamic_cast<Member> @element_stack.top
+					@Method* previous_method=@dynamic_cast<Method> @element_stack.top
+					@Parameter* previous_parameter=@dynamic_cast<Parameter> @element_stack.top
+					if [[ @current_class == @nullptr ]]; then
+						if [[ @previous_member != @nullptr ]]; then
+							@element_stack.pop >/dev/null
+							@current_class=@dynamic_cast<Class> @element_stack.top
+							@current_class.addMember @previous_member
+						elif [[ @previous_method != @nullptr ]]; then
+							@element_stack.pop >/dev/null
+							@current_class=@dynamic_cast<Class> @element_stack.top
+							@current_class.addMethod @previous_method
+						elif [[ @previous_parameter != @nullptr ]]; then
+							@element_stack.pop >/dev/null
+							@previous_method=@dynamic_cast<Method> @element_stack.top
+							@previous_method.addParameter @previous_parameter
+							@element_stack.pop >/dev/null
+							@current_class=@dynamic_cast<Class> @element_stack.top
+							@current_class.addMethod @previous_method
+						else
+							echo "Error: A member definition cannot be outside of a class."
+							echo -e "Line:\n---\n$line\n---"
+							exit 1
+						fi
+					fi
+					@Member* new_member=@new Member
+					@new_member.scope="${words[1]}"
+					@new_member.type="${words[2]}"
+					@new_member.name="${words[3]}"
+					echo "Parsing data member: \@$class_name.@new_member.name"
+					@element_stack.push @new_member
+					;;
+				"METHOD")
+					@Class* current_class=@dynamic_cast<Class> @element_stack.top
+					@Method* previous_method=@dynamic_cast<Method> @element_stack.top
+					@Parameter* previous_parameter=@dynamic_cast<Parameter> @element_stack.top
+					@Member* previous_member=@dynamic_cast<Member> @element_stack.top
+					if [[ @current_class == @nullptr ]]; then
+						if [[ @previous_method != @nullptr ]]; then
+							@element_stack.pop >/dev/null
+							@current_class=@dynamic_cast<Class> @element_stack.top
+							@current_class.addMethod @previous_method
+						elif [[ @previous_member != @nullptr ]]; then
+							@element_stack.pop >/dev/null
+							@current_class=@dynamic_cast<Class> @element_stack.top
+							@current_class.addMember @previous_member
+						elif [[ @previous_parameter != @nullptr ]]; then
+							@element_stack.pop >/dev/null
+							@previous_method=@dynamic_cast<Method> @element_stack.top
+							@previous_method.addParameter @previous_parameter
+							@element_stack.pop >/dev/null
+							@current_class=@dynamic_cast<Class> @element_stack.top
+							@current_class.addMethod @previous_method
+						else
+							echo "Error: A method definition cannot be outside of a class."
+							echo -e "Line:\n---\n$line\n---"
+							exit 1
+						fi
+					fi
+					@Method* new_method=@new Method
+					@new_method.scope="${words[1]}"
+					@new_method.name="${words[2]}"
+					method_name=@new_method.name
+					echo "Parsing method: \@$class_name.@new_method.name"
+					@element_stack.push @new_method
+					;;
+				"PARAM")
+					@Method* current_method=@dynamic_cast<Method> @element_stack.top
+					@Parameter* previous_parameter=@dynamic_cast<Parameter> @element_stack.top
+					if [[ @current_method == @nullptr ]]; then
+						if [[ @previous_parameter != @nullptr ]]; then
+							@element_stack.pop >/dev/null
+							@current_method=@dynamic_cast<Method> @element_stack.top
+							@current_method.addParameter @previous_parameter
+						else
+							echo "Error: A parameter definition cannot be outside of a method."
+							echo -e "Line:\n---\n$line\n---"
+							@Element* current_element=@dynamic_cast<Element> @element_stack.top
+							echo "Current element: @current_element.name"
+							exit 1
+						fi
+					fi
+					@Parameter* new_parameter=@new Parameter
+					@new_parameter.type="${words[1]}"
+					@new_parameter.name="${words[2]}"
+					echo "Parsing method parameter: \@$class_name.$method_name @new_parameter.name"
+					@element_stack.push @new_parameter
+					;;
+				"ENDAUTODOC")
+					@Member* previous_member=@dynamic_cast<Member> @element_stack.top
+					@Method* previous_method=@dynamic_cast<Method> @element_stack.top
+					@Parameter* previous_parameter=@dynamic_cast<Parameter> @element_stack.top
+					@Class* previous_class=@dynamic_cast<Class> @element_stack.top
+					if [[ @previous_member != @nullptr ]]; then
+						@element_stack.pop >/dev/null
+						@previous_class=@dynamic_cast<Class> @element_stack.top
+						@previous_class.addMember @previous_member
+					elif [[ @previous_method != @nullptr ]]; then
+						@element_stack.pop >/dev/null
+						@previous_class=@dynamic_cast<Class> @element_stack.top
+						@previous_class.addMethod @previous_method
+					elif [[ @previous_parameter != @nullptr ]]; then
+						@element_stack.pop >/dev/null
+						@previous_method=@dynamic_cast<Method> @element_stack.top
+						@previous_method.addParameter @previous_parameter
+						@element_stack.pop >/dev/null
+						@previous_class=@dynamic_cast<Class> @element_stack.top
+						@previous_class.addMethod @previous_method
+					fi
+					@this.addClass @element_stack.pop
+					;;
+				"")
+					@Element* current_element=@dynamic_cast<Element> @element_stack.top
+					if [[ @current_element == @nullptr ]]; then
+						echo "Error: Empty line found outside of any class, method, or member definition."
+						echo -e "Line:\n---\n$line\n---"
+						exit 1
+					fi
+					@current_element.description+="$description\n"
+					;;
+			esac
+			i=$((i + 1))
+		done
+	}
+
+	##METHOD public scanDirectory
+	### Scans the source directory for Bash++ source files and processes them.
+	@public @method scanDirectory {
+		echo "Scanning directory: @this.directory"
+		local files=($(find "@this.directory" -type f)) i=0
+		while [[ $i -lt ${#files[@]} ]]; do
+			echo "Scanning file: ${files[$i]}"
+			@this.scanFile "${files[$i]}"
+			i=$((i + 1))
+		done
+	}
+
+	##METHOD public print
+	### Prints the documentation in the specified format (xml or md).
+	@public @method print {
+		local documentOpen="<document>\n" documentClose="</document>\n"
+		local documentNameOpen="	<name>" documentNameClose="</name>\n"
+		local classOpen="	<class>\n" classClose="	</class>\n"
+		local classFileOpen="		<file>" classFileClose="</file>\n"
+		local classNameOpen="		<name>" classNameClose="</name>\n"
+		local classDescriptionOpen="		<description>" classDescriptionClose="</description>\n"
+		local memberSectionOpen=""
+		local memberOpen="		<member>\n" memberClose="		</member>\n"
+		local memberNameOpen="			<name>" memberNameClose="</name>\n"
+		local memberTypeOpen="			<type>" memberTypeClose="</type>\n"
+		local memberScopeOpen="			<scope>" memberScopeClose="</scope>\n"
+		local memberScopeKeywordOpen="" memberScopeKeywordClose=""
+		local memberDescriptionOpen="			<description>" memberDescriptionClose="</description>\n"
+		local methodSectionOpen=""
+		local methodOpen="		<method>\n" methodClose="		</method>\n"
+		local methodNameOpen="			<name>" methodNameClose="</name>\n"
+		local methodScopeOpen="			<scope>" methodScopeClose="</scope>\n"
+		local methodScopeKeywordOpen="" methodScopeKeywordClose=""
+		local methodDescriptionOpen="			<description>" methodDescriptionClose="</description>\n"
+		local parameterSectionOpen=""
+		local parameterOpen="			<parameter>\n" parameterClose="			</parameter>\n"
+		local parameterNameOpen="				<name>" parameterNameClose="</name>\n"
+		local parameterTypeOpen="				<type>" parameterTypeClose="</type>\n"
+		local parameterDescriptionOpen="				<description>" parameterDescriptionClose="</description>\n"
+		local exampleMethodUsageOpen="			<example>" exampleMethodUsageClose="</example>\n"
+
+
+		if [[ "@this.mode" == "md" ]]; then
+			documentOpen="" documentClose="\n"
+			documentNameOpen="# " documentNameClose="\n"
+			classOpen="" classClose="\n"
+			classFileOpen="\n\`\@include <" classFileClose=">\`\n\n"
+			classNameOpen="\n# Class: " classNameClose="\n\n"
+			classDescriptionOpen="" classDescriptionClose="\n"
+			memberSectionOpen="\n## Data Members\n\n"
+			memberOpen="" memberClose="\n"
+			memberNameOpen=" - \`" memberNameClose="\`\n"
+			memberTypeOpen="   - **Type**: \`" memberTypeClose="\`\n"
+			memberScopeOpen="   - **Scope**: " memberScopeKeywordOpen="\`" memberScopeKeywordClose="\`" memberScopeClose="\n"
+			memberDescriptionOpen="   - " memberDescriptionClose="\n"
+			methodSectionOpen="\n## Methods\n\n"
+			methodOpen="" methodClose="\n"
+			methodNameOpen="### " methodNameClose="\n\n"
+			methodScopeOpen="**Scope**: " methodScopeKeywordOpen="\`" methodScopeKeywordClose="\`" methodScopeClose="\n\n"
+			methodDescriptionOpen="" methodDescriptionClose="\n"
+			parameterSectionOpen="\n#### Parameters\n\n"
+			parameterOpen="" parameterClose="\n"
+			parameterNameOpen=" - \`" parameterNameClose="\`\n"
+			parameterTypeOpen="   - **Type**: \`" parameterTypeClose="\`\n"
+			parameterDescriptionOpen="   - " parameterDescriptionClose="\n"
+			exampleMethodUsageOpen="\nUsage: \`" exampleMethodUsageClose="\`\n"
+		fi
+
+		local i=0 size=@{#this.classes[@]}
+
+		if [[ -z "@this.output_directory" ]]; then
+			echo -n -e "$documentOpen"
+			echo -n -e "$documentNameOpen@{this.name}$documentNameClose"
+		fi
+
+		while [[ $i -lt $size ]]; do
+			@Class* current_class=@dynamic_cast<Class> @{this.classes[$i]}
+
+			local output_file="/proc/self/fd/1"
+			if ! [[ -z "@this.output_directory" ]]; then
+				output_file="@{this.output_directory}/@{current_class.name}.@{this.mode}"
+			fi
+
+			echo -n -e "$classOpen" > "$output_file"
+			echo -n -e "$classNameOpen@{current_class.name}$classNameClose" >> "$output_file"
+			echo -n -e "$classFileOpen@{current_class.file}$classFileClose" >> "$output_file"
+			echo -n -e "$classDescriptionOpen@{current_class.description}$classDescriptionClose" >> "$output_file"
+
+			local j=0 membersSize=@{#current_class.members[@]}
+			echo -n -e "$memberSectionOpen" >> "$output_file"
+			while [[ $j -lt $membersSize ]]; do
+				@Member* current_member=@dynamic_cast<Member> @{current_class.members[$j]}
+				echo -n -e "$memberOpen" >> "$output_file"
+				echo -n -e "$memberNameOpen\@@{current_class.name}.@{current_member.name}$memberNameClose" >> "$output_file"
+				echo -n -e "$memberTypeOpen@{current_member.type}$memberTypeClose" >> "$output_file"
+
+				local scope_color_coding=""
+				local scope_color_coding_end="</span>\n"
+				case "@{current_member.scope}" in
+					"public")
+						scope_color_coding="<span style=\"color: green;\">"
+						;;
+					"protected")
+						scope_color_coding="<span style=\"color: purple;\">"
+						;;
+					"private")
+						scope_color_coding="<span style=\"color: red;\">"
+						;;
+				esac
+
+				if [[ "@this.mode" != "md" ]]; then
+					scope_color_coding=""
+					scope_color_coding_end=""
+				fi
+
+				echo -n -e "$memberScopeOpen${scope_color_coding}$memberScopeKeywordOpen@{current_member.scope}$memberScopeKeywordClose${scope_color_coding_end}$memberScopeClose" >> "$output_file"
+				echo -n -e "$memberDescriptionOpen" >> "$output_file"
+				echo -n -e "@{current_member.description}" >> "$output_file"
+				echo -n -e "$memberDescriptionClose" >> "$output_file"
+				echo -n -e "$memberClose" >> "$output_file"
+				j=$((j + 1))
+			done
+
+			local j=0 methodsSize=@{#current_class.methods[@]}
+			echo -n -e "$methodSectionOpen" >> "$output_file"
+			while [[ $j -lt $methodsSize ]]; do
+				@Method* current_method=@dynamic_cast<Method> @{current_class.methods[$j]}
+				echo -n -e "$methodOpen" >> "$output_file"
+				echo -n -e "$methodNameOpen\@@{current_class.name}.@{current_method.name}$methodNameClose" >> "$output_file"
+
+				local scope_color_coding=""
+				local scope_color_coding_end="</span>\n"
+				case "@{current_method.scope}" in
+					"public")
+						scope_color_coding="<span style=\"color: green;\">"
+						;;
+					"protected")
+						scope_color_coding="<span style=\"color: purple;\">"
+						;;
+					"private")
+						scope_color_coding="<span style=\"color: red;\">"
+						;;
+				esac
+
+				if [[ "@this.mode" != "md" ]]; then
+					scope_color_coding=""
+					scope_color_coding_end=""
+				fi
+
+				echo -n -e "$methodScopeOpen${scope_color_coding}$methodScopeKeywordOpen@{current_method.scope}$methodScopeKeywordClose${scope_color_coding_end}$methodScopeClose" >> "$output_file"
+				echo -n -e "$methodDescriptionOpen@{current_method.description}$methodDescriptionClose" >> "$output_file"
+				echo -n -e "$exampleMethodUsageOpen\@@{current_class.name}.@{current_method.generateExample}$exampleMethodUsageClose" >> "$output_file"
+
+				local k=0 parametersSize=@{#current_method.parameters[@]}
+				echo -n -e "$parameterSectionOpen" >> "$output_file"
+				while [[ $k -lt $parametersSize ]]; do
+					@Parameter* current_parameter=@dynamic_cast<Parameter> @{current_method.parameters[$k]}
+					echo -n -e "$parameterNameOpen@{current_parameter.name}$parameterNameClose" >> "$output_file"
+					echo -n -e "$parameterTypeOpen@{current_parameter.type}$parameterTypeClose" >> "$output_file"
+					echo -n -e "$parameterDescriptionOpen@{current_parameter.description}$parameterDescriptionClose" >> "$output_file"
+					echo -n -e "$parameterClose" >> "$output_file"
+					k=$((k + 1))
+				done
+				echo -n -e "$methodClose" >> "$output_file"
+				j=$((j + 1))
+			done
+			echo -n -e "$classClose" >> "$output_file"
+			i=$((i + 1))
+		done
+		if [[ -z "@this.output_directory" ]]; then
+			echo -n -e "$documentClose"
+		fi
+	}
+}

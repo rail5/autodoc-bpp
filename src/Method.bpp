@@ -1,0 +1,53 @@
+#AUTODOC#
+
+@include_once "Element.bpp"
+@include_once "Parameter.bpp"
+
+#CLASS Method
+## Represents a method in a class.
+@class Method : Element {
+	##MEMBER public Primitive scope
+	### The scope of the method (default public).
+	@public scope="public"
+
+	##MEMBER public Primitive parameters
+	### An array of pointers to Parameter objects that represent the parameters of the method.
+	### If the method has no parameters, this array is empty.
+	@public parameters=()
+
+	##METHOD public addParameter
+	### Adds a parameter to the method.
+	###PARAM Parameter* parameter
+	#### A pointer to a Parameter object that represents the parameter to add.
+	@public @method addParameter @Parameter* parameter {
+		@this.parameters+=("@parameter")
+	}
+
+	##METHOD public generateExample
+	### Generates an example of how to use the method.
+	@public @method generateExample {
+		local example="@this.name" i=0 numberOfParameters=@{#this.parameters[@]}
+		@Parameter* current_parameter
+
+		while [[ $i -lt $numberOfParameters ]]; do
+			@current_parameter=@dynamic_cast<Parameter> @{this.parameters[$i]}
+
+			if [[ @current_parameter == @nullptr ]]; then
+				continue
+			fi
+
+			local parameterType_lowercase=$(echo @{current_parameter.type} | tr '[:upper:]' '[:lower:]')
+
+			if [[ $parameterType_lowercase == "primitive" ]]; then
+				example+=" \$@{current_parameter.name}"
+			else
+				example+=" &\@@{current_parameter.name}"
+			fi
+			i=$((i + 1))
+		done
+
+		echo "$example"
+	}
+}
+
+#ENDAUTODOC#

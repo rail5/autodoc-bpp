@@ -1,0 +1,35 @@
+#AUTODOC#
+
+#CLASS Class
+## Represents a Bash++ class
+@class Class : Element {
+	##MEMBER public Primitive file
+	### The file where the class is defined.
+	@public file
+
+	##MEMBER public Primitive methods
+	### An array of pointers to Method objects that represent the methods of the class.
+	@public methods=()
+
+	##MEMBER public Primitive members
+	### An array of pointers to Member objects that represent the data members of the class.
+	@public members=()
+
+	##METHOD public addMethod
+	### Adds a method to the class.
+	###PARAM Method* method_
+	#### A pointer to a Method object that represents the method to add.
+	@public @method addMethod @Method* method_ {
+		@this.methods+=("@method_")
+	}
+
+	##METHOD public addMember
+	### Adds a member to the class.
+	###PARAM Member* member_
+	#### A pointer to a Member object that represents the member to add.
+	@public @method addMember @Member* member_ {
+		@this.members+=("@member_")
+	}
+}
+
+#ENDAUTODOC#
