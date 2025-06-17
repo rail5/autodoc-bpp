@@ -390,7 +390,9 @@
 			echo -n -e "$classDescriptionOpen@{current_class.description}$classDescriptionClose" >> "$output_file"
 
 			local j=0 membersSize=@{#current_class.members[@]}
-			echo -n -e "$memberSectionOpen" >> "$output_file"
+			if [[ $membersSize -gt 0 ]]; then
+				echo -n -e "$memberSectionOpen" >> "$output_file"
+			fi
 			while [[ $j -lt $membersSize ]]; do
 				@Member* current_member=@dynamic_cast<Member> @{current_class.members[$j]}
 				echo -n -e "$memberOpen" >> "$output_file"
@@ -425,7 +427,9 @@
 			done
 
 			local j=0 methodsSize=@{#current_class.methods[@]}
-			echo -n -e "$methodSectionOpen" >> "$output_file"
+			if [[ $methodsSize -gt 0 ]]; then
+				echo -n -e "$methodSectionOpen" >> "$output_file"
+			fi
 			while [[ $j -lt $methodsSize ]]; do
 				@Method* current_method=@dynamic_cast<Method> @{current_class.methods[$j]}
 				echo -n -e "$methodOpen" >> "$output_file"
@@ -455,7 +459,9 @@
 				echo -n -e "$exampleMethodUsageOpen\@@{current_class.name}.@{current_method.generateExample}$exampleMethodUsageClose" >> "$output_file"
 
 				local k=0 parametersSize=@{#current_method.parameters[@]}
-				echo -n -e "$parameterSectionOpen" >> "$output_file"
+				if [[ $parametersSize -gt 0 ]]; then
+					echo -n -e "$parameterSectionOpen" >> "$output_file"
+				fi
 				while [[ $k -lt $parametersSize ]]; do
 					@Parameter* current_parameter=@dynamic_cast<Parameter> @{current_method.parameters[$k]}
 					echo -n -e "$parameterNameOpen@{current_parameter.name}$parameterNameClose" >> "$output_file"
