@@ -125,10 +125,11 @@
 	###PARAM Primitive file
 	#### The file to scan.
 	@public @method scanFile file {
-		local confirmation=$(head -n 1 "$file" | grep -Eo '^\s*#\s*AUTODOC#')
+		local confirmation=$(grep -Eo '^\s*#\s*AUTODOC#' "$file")
 		if [[ -z "$confirmation" ]]; then
 			return
 		fi
+		
 
 		@Stack element_stack
 		local class_name method_name
@@ -138,12 +139,14 @@
 		mapfile -t outputLines < <(echo "$fileContents")
 
 		local i=0
+		local can_continue_multiline_comment=false
 
 		while [[ $i -lt ${#outputLines[@]} ]]; do
 			local line="${outputLines[$i]}"
 			local level_heading=$(echo "$line" | grep -o -P "^([ \t\r]*)#+")
 			if [[ -z "$level_heading" ]]; then
 				i=$((i + 1))
+				can_continue_multiline_comment=false
 				continue
 			fi
 
@@ -153,6 +156,7 @@
 
 			case "$keyword" in
 				"CLASS")
+					can_continue_multiline_comment=true
 					if [[ @element_stack.empty != "true" ]]; then
 						@Class* previous_class=@dynamic_cast<Class> @element_stack.top
 						if [[ @previous_class == @nullptr ]]; then
@@ -175,6 +179,7 @@
 					@element_stack.push @new_class
 					;;
 				"MEMBER")
+					can_continue_multiline_comment=true
 					@Class* current_class=@dynamic_cast<Class> @element_stack.top
 					@Member* previous_member=@dynamic_cast<Member> @element_stack.top
 					@Method* previous_method=@dynamic_cast<Method> @element_stack.top
@@ -209,6 +214,7 @@
 					@element_stack.push @new_member
 					;;
 				"METHOD")
+					can_continue_multiline_comment=true
 					@Class* current_class=@dynamic_cast<Class> @element_stack.top
 					@Method* previous_method=@dynamic_cast<Method> @element_stack.top
 					@Parameter* previous_parameter=@dynamic_cast<Parameter> @element_stack.top
@@ -243,6 +249,7 @@
 					@element_stack.push @new_method
 					;;
 				"PARAM")
+					can_continue_multiline_comment=true
 					@Method* current_method=@dynamic_cast<Method> @element_stack.top
 					@Parameter* previous_parameter=@dynamic_cast<Parameter> @element_stack.top
 					if [[ @current_method == @nullptr ]]; then
@@ -265,6 +272,7 @@
 					@element_stack.push @new_parameter
 					;;
 				"ENDAUTODOC")
+					can_continue_multiline_comment=false
 					@Member* previous_member=@dynamic_cast<Member> @element_stack.top
 					@Method* previous_method=@dynamic_cast<Method> @element_stack.top
 					@Parameter* previous_parameter=@dynamic_cast<Parameter> @element_stack.top
@@ -288,13 +296,15 @@
 					@this.addClass @element_stack.pop
 					;;
 				"")
-					@Element* current_element=@dynamic_cast<Element> @element_stack.top
-					if [[ @current_element == @nullptr ]]; then
-						echo "Error: Empty line found outside of any class, method, or member definition."
-						echo -e "Line:\n---\n$line\n---"
-						exit 1
+					if [[ "$can_continue_multiline_comment" == true ]]; then
+						@Element* current_element=@dynamic_cast<Element> @element_stack.top
+						if [[ @current_element == @nullptr ]]; then
+							echo "Error: Empty line found outside of any class, method, or member definition."
+							echo -e "Line:\n---\n$line\n---"
+							exit 1
+						fi
+						@current_element.description+="$description\n"
 					fi
-					@current_element.description+="$description\n"
 					;;
 			esac
 			i=$((i + 1))
