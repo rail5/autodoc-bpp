@@ -1,11 +1,20 @@
 #AUTODOC#
 
-#CLASS Class
+#CLASS Class : Element
 ## Represents a Bash++ class
 @class Class : Element {
 	##MEMBER public Primitive file
 	### The file where the class is defined.
 	@public file
+
+	##MEMBER public Primitive sourceFile
+	### The source file where the class is defined, as it will be found by the autodoc-bpp tool.
+	### This may be a different location from 'file', which is where the class will be found at runtime.
+	@public sourceFile
+
+	##MEMBER public Primitive parent
+	### The name of the parent class, if any.
+	@public parent
 
 	##MEMBER public Primitive methods
 	### An array of pointers to Method objects that represent the methods of the class.
@@ -15,12 +24,74 @@
 	### An array of pointers to Member objects that represent the data members of the class.
 	@public members=()
 
+	##METHOD public getMethod
+	### Gets a method by its name.
+	### Echoes a pointer to the Method object if found.
+	###PARAM Primitive name
+	#### The name of the method to get.
+	@public @method getMethod name {
+		for m in @{this.methods[@]}; do
+			@Method* method_="$m"
+			if [[ @method_.name == "$name" ]]; then
+				echo "$m"
+				return
+			fi
+		done
+		return 1
+	}
+
 	##METHOD public addMethod
 	### Adds a method to the class.
 	###PARAM Method* method_
 	#### A pointer to a Method object that represents the method to add.
 	@public @method addMethod @Method* method_ {
-		@this.methods+=("@method_")
+		if [[ @method_ != @nullptr ]]; then
+			# Check if the method already exists
+			if @this.getMethod "@method_.name" >/dev/null; then
+				 >&2 echo "Error: Method '@method_.name' already exists in class '@this.name'"
+				return 1
+			fi
+			@this.methods+=("@method_")
+			return 0
+		fi
+		return 1
+	}
+
+	##METHOD public inherit
+	### Sets the parent class for this class.
+	### This method should only be called after the class has been fully defined.
+	### Inherits all members and methods from the parent class, as long as these have not been overridden.
+	###PARAM Class* parent_
+	#### A pointer to a Class object that represents the parent class.
+	@public @method inherit @Class* parent_ {
+		if [[ @parent_ != @nullptr ]]; then
+			@this.parent="@parent_"
+			# Inherit methods
+			for m in @{parent_.methods[@]}; do
+				@Method* method_="$m"
+				if ! @this.getMethod "@method_.name" >/dev/null; then
+					@this.addMethod "@method_"
+				fi
+			done
+			return 0
+		fi
+		return 1
+	}
+
+	##METHOD public getMember
+	### Gets a member by its name.
+	### Echoes a pointer to the Member object if found.
+	###PARAM Primitive name
+	#### The name of the member to get.
+	@public @method getMember name {
+		for m in @{this.members[@]}; do
+			@Member* member_="$m"
+			if [[ @member_.name == "$name" ]]; then
+				echo "$m"
+				return
+			fi
+		done
+		return 1
 	}
 
 	##METHOD public addMember
@@ -28,7 +99,16 @@
 	###PARAM Member* member_
 	#### A pointer to a Member object that represents the member to add.
 	@public @method addMember @Member* member_ {
-		@this.members+=("@member_")
+		if [[ @member_ != @nullptr ]]; then
+			# Check if the member already exists
+			if @this.getMember "@member_.name" >/dev/null; then
+				 >&2 echo "Error: Member '@member_.name' already exists in class '@this.name'"
+				return 1
+			fi
+			@this.members+=("@member_")
+			return 0
+		fi
+		return 1
 	}
 }
 

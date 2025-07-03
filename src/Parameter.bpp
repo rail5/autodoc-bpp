@@ -2,7 +2,7 @@
 
 @include_once "Element.bpp"
 
-#CLASS Parameter
+#CLASS Parameter : Element
 ## Represents a parameter in a method or function.
 @class Parameter : Element {
 

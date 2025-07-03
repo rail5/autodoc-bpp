@@ -2,7 +2,7 @@
 
 @include_once "Element.bpp"
 
-#CLASS Member
+#CLASS Member : Element
 ## Represents a data member in a class.
 @class Member : Element {
 	##MEMBER public Primitive type

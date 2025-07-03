@@ -35,6 +35,10 @@
 	### An array of pointers to Class objects that represent the classes defined in the document.
 	@private classes=()
 
+	##MEMBER private Primitive classes_on_hold
+	### An array of pointers to Class objects that are waiting to be processed until after their parent classes have been processed.
+	@private classes_on_hold=()
+
 	##METHOD public setMode
 	### Sets the mode of the document.
 	###PARAM Primitive mode_
@@ -70,6 +74,22 @@
 		fi
 	}
 
+	##METHOD public getClass
+	### Gets a class by its name.
+	### Echoes a pointer to the Class object if found.
+	###PARAM Primitive name
+	#### The name of the class to get.
+	@public @method getClass name {
+		for c in @{this.classes[@]}; do
+			@Class* class_=$c
+			if [[ @class_.name == "$name" ]]; then
+				echo "@class_"
+				return
+			fi
+		done
+		return 1
+	}
+
 	##METHOD public addClass
 	### Adds a class to the document.
 	###PARAM Class* class_
@@ -78,6 +98,16 @@
 		if [[ @class_ == @nullptr ]]; then
 			echo "Error: Cannot add a null class."
 			exit 1
+		fi
+		if [[ -n "@class_.parent" ]]; then
+			@Class* parentClass=@dynamic_cast<Class> @(@this.getClass "@class_.parent")
+			if [[ @parentClass == @nullptr ]]; then
+				>&2 echo "Warning: Parent class '@class_.parent' not found for class '@class_.name'."
+				return 1
+			fi
+			# Inherit from the parent class
+			echo "Inheriting from parent class: @parentClass.name"
+			@class_.inherit @parentClass
 		fi
 		@this.classes+=("@class_")
 	}
@@ -140,6 +170,7 @@
 
 		local i=0
 		local can_continue_multiline_comment=false
+		local skipping_this_class=0
 
 		while [[ $i -lt ${#outputLines[@]} ]]; do
 			local line="${outputLines[$i]}"
@@ -157,6 +188,7 @@
 			case "$keyword" in
 				"CLASS")
 					can_continue_multiline_comment=true
+					skipping_this_class=0
 					if [[ @element_stack.empty != "true" ]]; then
 						@Class* previous_class=@dynamic_cast<Class> @element_stack.top
 						if [[ @previous_class == @nullptr ]]; then
@@ -167,6 +199,11 @@
 
 						@this.addClass @element_stack.pop
 					fi
+					# Verify we haven't already processed this class
+					if @this.getClass "${words[1]}" >/dev/null; then
+						i=$((i + 1))
+						continue
+					fi
 					@Class* new_class=@new Class
 					@new_class.name="${words[1]}"
 					class_name=@new_class.name
@@ -176,9 +213,34 @@
 					else
 						@new_class.file=$(basename "$file")
 					fi
-					@element_stack.push @new_class
+					@new_class.sourceFile="$file"
+					if [[ -n "${words[2]}" ]] && [[ "${words[2]}" == ":" ]]; then
+						# Make sure we've processed the parent class before this one
+						# If we haven't already, put this one on hold
+						local parent_class_name="${words[3]}"
+						@new_class.parent="$parent_class_name"
+						@Class* parentClass=@dynamic_cast<Class> @(@this.getClass "$parent_class_name")
+						if [[ @parentClass == @nullptr ]]; then
+							# Parent class not found, put this class on hold
+							echo "Warning: Parent class '$parent_class_name' not found for class '@new_class.name'."
+							echo "Putting class '@new_class.name' on hold until parent class is processed."
+							@this.classes_on_hold+=("@new_class")
+							skipping_this_class=1
+						else
+							# Parent class found, inherit from it
+							echo "Will inherit from parent class: @parentClass.name"
+							@element_stack.push @new_class
+						fi
+					else
+						# No parent class specified, just push the new class onto the stack
+						@element_stack.push @new_class
+					fi
 					;;
 				"MEMBER")
+					if [[ $skipping_this_class -eq 1 ]]; then
+						i=$((i + 1))
+						continue
+					fi
 					can_continue_multiline_comment=true
 					@Class* current_class=@dynamic_cast<Class> @element_stack.top
 					@Member* previous_member=@dynamic_cast<Member> @element_stack.top
@@ -214,6 +276,10 @@
 					@element_stack.push @new_member
 					;;
 				"METHOD")
+					if [[ $skipping_this_class -eq 1 ]]; then
+						i=$((i + 1))
+						continue
+					fi
 					can_continue_multiline_comment=true
 					@Class* current_class=@dynamic_cast<Class> @element_stack.top
 					@Method* previous_method=@dynamic_cast<Method> @element_stack.top
@@ -249,6 +315,10 @@
 					@element_stack.push @new_method
 					;;
 				"PARAM")
+					if [[ $skipping_this_class -eq 1 ]]; then
+						i=$((i + 1))
+						continue
+					fi
 					can_continue_multiline_comment=true
 					@Method* current_method=@dynamic_cast<Method> @element_stack.top
 					@Parameter* previous_parameter=@dynamic_cast<Parameter> @element_stack.top
@@ -293,21 +363,59 @@
 						@previous_class=@dynamic_cast<Class> @element_stack.top
 						@previous_class.addMethod @previous_method
 					fi
-					@this.addClass @element_stack.pop
+					@Class* final_add=@dynamic_cast<Class> @element_stack.pop
+					if [[ @final_add != @nullptr ]]; then
+						@this.addClass @final_add
+					fi
 					;;
 				"")
 					if [[ "$can_continue_multiline_comment" == true ]]; then
 						@Element* current_element=@dynamic_cast<Element> @element_stack.top
-						if [[ @current_element == @nullptr ]]; then
-							echo "Error: Empty line found outside of any class, method, or member definition."
-							echo -e "Line:\n---\n$line\n---"
-							exit 1
+						if [[ @current_element != @nullptr ]]; then
+							@current_element.description+="$description\n"
 						fi
-						@current_element.description+="$description\n"
 					fi
 					;;
 			esac
 			i=$((i + 1))
+		done
+	}
+
+	##METHOD public processClassesOnHold
+	### Processes classes that were put on hold until their parent classes were processed.
+	@public @method processClassesOnHold {
+		# While the classes_on_hold array is not empty, process the classes
+		local initial_count=@{#this.classes_on_hold[@]} iteration=0
+		local current_count=$initial_count
+		while [[ $current_count -gt 0 ]]; do
+			local hold_copy=(@{this.classes_on_hold[@]})
+			@this.classes_on_hold=()
+			echo "Iteration $iteration: Processing classes on hold (${#hold_copy[@]} remaining)..."
+			for c in ${hold_copy[@]}; do
+				@Class* class_=$c
+				if [[ @class_ == @nullptr ]]; then
+					continue
+				fi
+
+				# Check if the parent class has been processed
+				@Class* parentClass=@dynamic_cast<Class> @(@this.getClass "@class_.parent")
+				if [[ @parentClass != @nullptr ]]; then
+					echo "Processing held class: @class_.name"
+					# Re-scan the class file
+					@this.scanFile "@class_.sourceFile"
+				else
+					>&2 echo "Still waiting for parent class '@class_.parent' to be processed for class '@class_.name'."
+				fi
+			done
+
+			# The theoretical maximum number of iterations is the initial count of classes_on_hold
+			if [[ $iteration -gt $initial_count ]]; then
+				>&2 echo "Warning: Classes on hold were not processed after $iteration iterations. This may indicate a circular dependency or missing parent class."
+				break
+			fi
+
+			iteration=$((iteration + 1))
+			current_count=@{#this.classes_on_hold[@]}
 		done
 	}
 
@@ -321,6 +429,9 @@
 			@this.scanFile "${files[$i]}"
 			i=$((i + 1))
 		done
+
+		# Process any classes that were put on hold
+		@this.processClassesOnHold
 	}
 
 	##METHOD public print
