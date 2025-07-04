@@ -202,6 +202,7 @@
 					# Verify we haven't already processed this class
 					if @this.getClass "${words[1]}" >/dev/null; then
 						i=$((i + 1))
+						skipping_this_class=1
 						continue
 					fi
 					@Class* new_class=@new Class
@@ -342,31 +343,8 @@
 					@element_stack.push @new_parameter
 					;;
 				"ENDAUTODOC")
-					can_continue_multiline_comment=false
-					@Member* previous_member=@dynamic_cast<Member> @element_stack.top
-					@Method* previous_method=@dynamic_cast<Method> @element_stack.top
-					@Parameter* previous_parameter=@dynamic_cast<Parameter> @element_stack.top
-					@Class* previous_class=@dynamic_cast<Class> @element_stack.top
-					if [[ @previous_member != @nullptr ]]; then
-						@element_stack.pop >/dev/null
-						@previous_class=@dynamic_cast<Class> @element_stack.top
-						@previous_class.addMember @previous_member
-					elif [[ @previous_method != @nullptr ]]; then
-						@element_stack.pop >/dev/null
-						@previous_class=@dynamic_cast<Class> @element_stack.top
-						@previous_class.addMethod @previous_method
-					elif [[ @previous_parameter != @nullptr ]]; then
-						@element_stack.pop >/dev/null
-						@previous_method=@dynamic_cast<Method> @element_stack.top
-						@previous_method.addParameter @previous_parameter
-						@element_stack.pop >/dev/null
-						@previous_class=@dynamic_cast<Class> @element_stack.top
-						@previous_class.addMethod @previous_method
-					fi
-					@Class* final_add=@dynamic_cast<Class> @element_stack.pop
-					if [[ @final_add != @nullptr ]]; then
-						@this.addClass @final_add
-					fi
+					# Skip the rest of the document
+					i=$((${#outputLines[@]} + 1))
 					;;
 				"")
 					if [[ "$can_continue_multiline_comment" == true ]]; then
@@ -379,6 +357,32 @@
 			esac
 			i=$((i + 1))
 		done
+
+		# Finalize
+		@Member* previous_member=@dynamic_cast<Member> @element_stack.top
+		@Method* previous_method=@dynamic_cast<Method> @element_stack.top
+		@Parameter* previous_parameter=@dynamic_cast<Parameter> @element_stack.top
+		@Class* previous_class=@dynamic_cast<Class> @element_stack.top
+		if [[ @previous_member != @nullptr ]]; then
+			@element_stack.pop >/dev/null
+			@previous_class=@dynamic_cast<Class> @element_stack.top
+			@previous_class.addMember @previous_member
+		elif [[ @previous_method != @nullptr ]]; then
+			@element_stack.pop >/dev/null
+			@previous_class=@dynamic_cast<Class> @element_stack.top
+			@previous_class.addMethod @previous_method
+		elif [[ @previous_parameter != @nullptr ]]; then
+			@element_stack.pop >/dev/null
+			@previous_method=@dynamic_cast<Method> @element_stack.top
+			@previous_method.addParameter @previous_parameter
+			@element_stack.pop >/dev/null
+			@previous_class=@dynamic_cast<Class> @element_stack.top
+			@previous_class.addMethod @previous_method
+		fi
+		@Class* final_add=@dynamic_cast<Class> @element_stack.pop
+		if [[ @final_add != @nullptr ]]; then
+			@this.addClass @final_add
+		fi
 	}
 
 	##METHOD public processClassesOnHold
