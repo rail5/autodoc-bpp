@@ -1,626 +1,366 @@
-#AUTODOC#
+@include_once "elements/Class.bpp"
+@include_once "formatting/XML.bpp"
+@include_once "formatting/MD.bpp"
+@include_once "modified-stdlib/TypedArray"
 
-@include_once "Element.bpp"
-@include_once "Member.bpp"
-@include_once "Method.bpp"
-@include_once "Parameter.bpp"
-@include_once "Class.bpp"
-
-@include_once <Stack>
-
-#CLASS Document
-## Represents a Bash++ source file for which we will generate documentation.
 @class Document {
-	##MEMBER private Primitive directory
-	### The directory where the document is located.
-	@private directory
+	## The directory to scan for source files.
+	@private sourceDirectory
+	## The output format for the documentation (can be "xml" or "md").
+	@private outputFormat="xml"
+	## The directory to output the documentation files to.
+	@private outputDirectory
+	@private @TypedArray classes
+	@private @TypedArray classes_with_unknown_parents
 
-	##MEMBER private Primitive name
-	### The name of the document (without the .bpp extension).
-	@private name
+	@constructor {
+		@this.classes.set_type "Class"
+		@this.classes_with_unknown_parents.set_type "Class"
+	}
 
-	##MEMBER private Primitive mode
-	### The format of the generated documentation. (xml or md)
-	@private mode="xml"
-
-	##MEMBER private Primitive drop_extensions
-	### Whether to drop the .bpp extension from the file names in the documentation.
-	@private drop_extensions="false"
-
-	##MEMBER private Primitive output_directory
-	### The directory where the generated documentation will be saved.
-	@private output_directory
-
-	##MEMBER private Primitive classes
-	### An array of pointers to Class objects that represent the classes defined in the document.
-	@private classes=()
-
-	##MEMBER private Primitive classes_on_hold
-	### An array of pointers to Class objects that are waiting to be processed until after their parent classes have been processed.
-	@private classes_on_hold=()
-
-	##METHOD public setMode
-	### Sets the mode of the document.
-	###PARAM Primitive mode_
-	#### The mode to set (xml or md).
+	@public @method setSourceDirectory directory {
+		if [[ ! -d "$directory" ]]; then
+			return 1
+		fi
+		@this.sourceDirectory="$directory"
+	}
 	@public @method setMode mode {
-		local mode_lower=$(echo "$mode" | tr '[:upper:]' '[:lower:]')
-		if [[ "$mode_lower" == "xml" || "$mode_lower" == "md" ]]; then
-			@this.mode="$mode_lower"
+		mode=@(echo "$mode" | tr '[:upper:]' '[:lower:]')
+		if [[ "$mode" == "xml" || "$mode" == "md" ]]; then
+			@this.outputFormat="$mode"
+			return 0
 		else
-			echo "Error: Invalid mode '$mode'. Valid modes are 'xml' or 'md'."
-			exit 1
+			return 1
 		fi
 	}
-
-	##METHOD public setDropExtensions
-	### Sets whether to drop the .bpp extension from the file names in the documentation.
-	###PARAM Primitive boolean
-	#### 'true' or 'false'
-	@public @method setDropExtensions boolean {
-		@this.drop_extensions=$(echo "$boolean" | tr '[:upper:]' '[:lower:]')
-	}
-
-	##METHOD public setOutputDirectory
-	### Sets the directory where the generated documentation will be saved.
-	###PARAM Primitive directory
-	#### The directory to set.
 	@public @method setOutputDirectory directory {
-		if [[ -d "$directory" ]]; then
-			@this.output_directory="$directory"
-		else
-			echo "Error: Directory '$directory' does not exist."
-			exit 1
+		if [[ ! -d "$directory" ]]; then
+			return 1
+		fi
+		@this.outputDirectory="$directory"
+	}
+
+	@public @method isReady {
+		if [[ -z "@this.sourceDirectory" ]] || [[ -z "@this.outputDirectory" ]]; then
+			return 1
 		fi
 	}
 
-	##METHOD public getClass
-	### Gets a class by its name.
-	### Echoes a pointer to the Class object if found.
-	###PARAM Primitive name
-	#### The name of the class to get.
-	@public @method getClass name {
-		for c in @{this.classes[@]}; do
-			@Class* class_=$c
+	@private @method findClassByName name {
+		for c in @this.classes.all; do
+			@Class* class_="$c"
 			if [[ @class_.name == "$name" ]]; then
-				echo "@class_"
-				return
+				echo "$c"
+				return 0
 			fi
 		done
 		return 1
 	}
 
-	##METHOD public addClass
-	### Adds a class to the document.
-	###PARAM Class* class_
-	#### A pointer to a Class object that represents the class to add.
-	@public @method addClass @Class* class_ {
-		if [[ @class_ == @nullptr ]]; then
-			echo "Error: Cannot add a null class."
-			exit 1
-		fi
-		if [[ -n "@class_.parent" ]]; then
-			@Class* parentClass=@dynamic_cast<Class> @(@this.getClass "@class_.parent")
-			if [[ @parentClass == @nullptr ]]; then
-				>&2 echo "Warning: Parent class '@class_.parent' not found for class '@class_.name'."
-				return 1
-			fi
-			# Inherit from the parent class
-			echo "Inheriting from parent class: @parentClass.name"
-			@class_.inherit @parentClass
-		fi
-		@this.classes+=("@class_")
-	}
-
-	##METHOD public setDirectory
-	### Sets the directory where the source document is located.
-	###PARAM Primitive directory
-	#### The directory to set.
-	@public @method setDirectory directory {
-		if [[ -d "$directory" ]]; then
-			@this.directory="$directory"
-		else
-			echo "Error: Directory '$directory' does not exist."
-			exit 1
-		fi
-	}
-
-	##METHOD public setName
-	### Sets the name of the document (without the .bpp extension).
-	###PARAM Primitive name
-	#### The name to set.
-	@public @method setName name {
-		if [[ -n "$name" ]]; then
-			@this.name="$name"
-		else
-			echo "Error: Name cannot be empty."
-			exit 1
-		fi
-	}
-
-	##METHOD public getDirectory
-	### Echoes the directory where the source document is located.
-	@public @method getDirectory {
-		echo "@this.directory"
-	}
-
-	##METHOD public getName
-	### Echoes the name of the document (without the .bpp extension).
-	@public @method getName {
-		echo "@this.name"
-	}
-
-	##METHOD public scanFile
-	### Scans the source file for classes to document
-	###PARAM Primitive file
-	#### The file to scan.
-	@public @method scanFile file {
-		local confirmation=$(grep -Eo '^\s*#\s*AUTODOC#' "$file")
-		if [[ -z "$confirmation" ]]; then
-			return
-		fi
-		
-
-		@Stack element_stack
-		local class_name method_name
-
+	## Scans a single file for class definitions and processes them.
+	@private @method scanFile file {
+		local latestComment=""
 		local fileContents outputLines
+		local currently_parsing_multiline_comment=0
+
+		# Specifically for METHOD processing:
+		local latestReturnsComment="" latestOutputsComment=""
+		# Associative array: parameter name -> description
+		declare -A parameter_descriptions
+
 		IFS= read -r -d '' fileContents < <(cat "$file")
 		mapfile -t outputLines < <(echo "$fileContents")
 
-		local i=0
-		local can_continue_multiline_comment=false
-		local skipping_this_class=0
+		local line_number=0
+		for line in "${outputLines[@]}"; do
+			line_number=$((line_number + 1))
 
-		while [[ $i -lt ${#outputLines[@]} ]]; do
-			local line="${outputLines[$i]}"
-			local level_heading=$(echo "$line" | grep -o -P "^([ \t\r]*)#+")
-			if [[ -z "$level_heading" ]]; then
-				i=$((i + 1))
-				can_continue_multiline_comment=false
+			# We can skip this line really quickly if we don't see '##' or '@'
+			if ! grep -qE '^[[:space:]]*(##|@)' <<< "$line"; then
+				# If we reach here and were parsing a multiline comment, end it
+				currently_parsing_multiline_comment=0
 				continue
 			fi
 
-			local keyword=$(echo "$line" | grep -o -P "(?<=^$level_heading)[A-Z]+" | tr -d "#")
-			local words=($(echo "$line" | tr -s " "))
-			local description=$(echo "$line" | sed -E "s/^[ \t\r]*#+[ \t\r]*//")
+			# Do we see an autodoc comment on this line?
+			# Scan for '## comment text'
+			if grep -qE '^[[:space:]]*##' <<< "$line"; then
+				# Extract comment text
+				local comment_text=@(grep -oE '^[[:space:]]*##[[:space:]]*.*$' <<< "$line" | sed -E 's/^[[:space:]]*##[[:space:]]*//')
 
-			case "$keyword" in
-				"CLASS")
-					can_continue_multiline_comment=true
-					skipping_this_class=0
-					if [[ @element_stack.empty != "true" ]]; then
-						@Class* previous_class=@dynamic_cast<Class> @element_stack.top
-						if [[ @previous_class == @nullptr ]]; then
-							echo "Error: A class definition cannot be nested inside another class or method."
-							echo -e "Line:\n---\n$line\n---"
-							exit 1
-						fi
+				# Extract the first word to see if it's a command word (like '@param')
+				# '@param' is used to document method parameters
+				# '@return' or '@returns' is used to document method exit status codes
+				# '@output' or '@outputs' is used to document method output values (stdout)
+				local first_word=@(awk '{print $1}' <<< "$comment_text")
+				case "$first_word" in
+					"\@param")
+						# Extract parameter name and description
+						# The format is: '@param name description...'
+						# The description may be multiple words
+						local param_declaration_and_description=@(echo "$comment_text" | sed -E 's/^\@param[[:space:]]+//')
+						local param_name=@(echo "$param_declaration_and_description" | awk '{print $1}')
+						local param_description=@(echo "$param_declaration_and_description" | sed -E "s/^$param_name[[:space:]]*//")
+						parameter_descriptions["$param_name"]="$param_description"
+						continue
+						;;
+					"\@return" | "\@returns")
+						# Extract returns description (text after the keyword)
+						latestReturnsComment=@(echo "$comment_text" | sed -E 's/^\@(return|returns)[[:space:]]+//')
+						continue
+						;;
+					"\@output" | "\@outputs")
+						# Extract outputs description (text after the keyword)
+						latestOutputsComment=@(echo "$comment_text" | sed -E 's/^\@(output|outputs)[[:space:]]+//')
+						continue
+						;;
+					*)
+						# Regular comment, continue processing below
+						;;
+				esac
+				
+				if [[ $currently_parsing_multiline_comment -eq 1 ]]; then
+					latestComment+="\n$comment_text"
+				else
+					latestComment="$comment_text"
+					currently_parsing_multiline_comment=1
+				fi
+				continue
+			fi
 
-						@this.addClass @element_stack.pop
-					fi
-					# Verify we haven't already processed this class
-					if @this.getClass "${words[1]}" >/dev/null; then
-						i=$((i + 1))
-						skipping_this_class=1
-						continue
-					fi
-					@Class* new_class=@new Class
-					@new_class.name="${words[1]}"
-					class_name=@new_class.name
-					echo "Parsing class @new_class.name"
-					if [[ @this.drop_extensions == "true" ]]; then
-						@new_class.file=$(basename -s .bpp "$file")
-					else
-						@new_class.file=$(basename "$file")
-					fi
-					@new_class.sourceFile="$file"
-					if [[ -n "${words[2]}" ]] && [[ "${words[2]}" == ":" ]]; then
-						# Make sure we've processed the parent class before this one
-						# If we haven't already, put this one on hold
-						local parent_class_name="${words[3]}"
-						@new_class.parent="$parent_class_name"
-						@Class* parentClass=@dynamic_cast<Class> @(@this.getClass "$parent_class_name")
-						if [[ @parentClass == @nullptr ]]; then
-							# Parent class not found, put this class on hold
-							echo "Warning: Parent class '$parent_class_name' not found for class '@new_class.name'."
-							echo "Putting class '@new_class.name' on hold until parent class is processed."
-							@this.classes_on_hold+=("@new_class")
-							skipping_this_class=1
-						else
-							# Parent class found, inherit from it
-							echo "Will inherit from parent class: @parentClass.name"
-							@element_stack.push @new_class
-						fi
-					else
-						# No parent class specified, just push the new class onto the stack
-						@element_stack.push @new_class
-					fi
-					;;
-				"MEMBER")
-					if [[ $skipping_this_class -eq 1 ]]; then
-						i=$((i + 1))
-						continue
-					fi
-					can_continue_multiline_comment=true
-					@Class* current_class=@dynamic_cast<Class> @element_stack.top
-					@Member* previous_member=@dynamic_cast<Member> @element_stack.top
-					@Method* previous_method=@dynamic_cast<Method> @element_stack.top
-					@Parameter* previous_parameter=@dynamic_cast<Parameter> @element_stack.top
-					if [[ @current_class == @nullptr ]]; then
-						if [[ @previous_member != @nullptr ]]; then
-							@element_stack.pop >/dev/null
-							@current_class=@dynamic_cast<Class> @element_stack.top
-							@current_class.addMember @previous_member
-						elif [[ @previous_method != @nullptr ]]; then
-							@element_stack.pop >/dev/null
-							@current_class=@dynamic_cast<Class> @element_stack.top
-							@current_class.addMethod @previous_method
-						elif [[ @previous_parameter != @nullptr ]]; then
-							@element_stack.pop >/dev/null
-							@previous_method=@dynamic_cast<Method> @element_stack.top
-							@previous_method.addParameter @previous_parameter
-							@element_stack.pop >/dev/null
-							@current_class=@dynamic_cast<Class> @element_stack.top
-							@current_class.addMethod @previous_method
-						else
-							echo "Error: A member definition cannot be outside of a class."
-							echo -e "Line:\n---\n$line\n---"
-							exit 1
-						fi
-					fi
-					@Member* new_member=@new Member
-					@new_member.scope="${words[1]}"
-					@new_member.type="${words[2]}"
-					@new_member.name="${words[3]}"
-					echo "Parsing data member: \@$class_name.@new_member.name"
-					@element_stack.push @new_member
-					;;
-				"METHOD")
-					if [[ $skipping_this_class -eq 1 ]]; then
-						i=$((i + 1))
-						continue
-					fi
-					can_continue_multiline_comment=true
-					@Class* current_class=@dynamic_cast<Class> @element_stack.top
-					@Method* previous_method=@dynamic_cast<Method> @element_stack.top
-					@Parameter* previous_parameter=@dynamic_cast<Parameter> @element_stack.top
-					@Member* previous_member=@dynamic_cast<Member> @element_stack.top
-					if [[ @current_class == @nullptr ]]; then
-						if [[ @previous_method != @nullptr ]]; then
-							@element_stack.pop >/dev/null
-							@current_class=@dynamic_cast<Class> @element_stack.top
-							@current_class.addMethod @previous_method
-						elif [[ @previous_member != @nullptr ]]; then
-							@element_stack.pop >/dev/null
-							@current_class=@dynamic_cast<Class> @element_stack.top
-							@current_class.addMember @previous_member
-						elif [[ @previous_parameter != @nullptr ]]; then
-							@element_stack.pop >/dev/null
-							@previous_method=@dynamic_cast<Method> @element_stack.top
-							@previous_method.addParameter @previous_parameter
-							@element_stack.pop >/dev/null
-							@current_class=@dynamic_cast<Class> @element_stack.top
-							@current_class.addMethod @previous_method
-						else
-							echo "Error: A method definition cannot be outside of a class."
-							echo -e "Line:\n---\n$line\n---"
-							exit 1
-						fi
-					fi
-					@Method* new_method=@new Method
-					@new_method.scope="${words[1]}"
-					@new_method.name="${words[2]}"
-					method_name=@new_method.name
-					echo "Parsing method: \@$class_name.@new_method.name"
-					@element_stack.push @new_method
-					;;
-				"PARAM")
-					if [[ $skipping_this_class -eq 1 ]]; then
-						i=$((i + 1))
-						continue
-					fi
-					can_continue_multiline_comment=true
-					@Method* current_method=@dynamic_cast<Method> @element_stack.top
-					@Parameter* previous_parameter=@dynamic_cast<Parameter> @element_stack.top
-					if [[ @current_method == @nullptr ]]; then
-						if [[ @previous_parameter != @nullptr ]]; then
-							@element_stack.pop >/dev/null
-							@current_method=@dynamic_cast<Method> @element_stack.top
-							@current_method.addParameter @previous_parameter
-						else
-							echo "Error: A parameter definition cannot be outside of a method."
-							echo -e "Line:\n---\n$line\n---"
-							@Element* current_element=@dynamic_cast<Element> @element_stack.top
-							echo "Current element: @current_element.name"
-							exit 1
-						fi
-					fi
-					@Parameter* new_parameter=@new Parameter
-					@new_parameter.type="${words[1]}"
-					@new_parameter.name="${words[2]}"
-					echo "Parsing method parameter: \@$class_name.$method_name @new_parameter.name"
-					@element_stack.push @new_parameter
-					;;
-				"ENDAUTODOC")
-					# Skip the rest of the document
-					i=$((${#outputLines[@]} + 1))
-					;;
-				"")
-					if [[ "$can_continue_multiline_comment" == true ]]; then
-						@Element* current_element=@dynamic_cast<Element> @element_stack.top
-						if [[ @current_element != @nullptr ]]; then
-							@current_element.description+="$description\n"
-						fi
-					fi
-					;;
-			esac
-			i=$((i + 1))
-		done
+			# If we reach here and were parsing a multiline comment, end it
+			currently_parsing_multiline_comment=0
 
-		# Finalize
-		@Member* previous_member=@dynamic_cast<Member> @element_stack.top
-		@Method* previous_method=@dynamic_cast<Method> @element_stack.top
-		@Parameter* previous_parameter=@dynamic_cast<Parameter> @element_stack.top
-		@Class* previous_class=@dynamic_cast<Class> @element_stack.top
-		if [[ @previous_member != @nullptr ]]; then
-			@element_stack.pop >/dev/null
-			@previous_class=@dynamic_cast<Class> @element_stack.top
-			@previous_class.addMember @previous_member
-		elif [[ @previous_method != @nullptr ]]; then
-			@element_stack.pop >/dev/null
-			@previous_class=@dynamic_cast<Class> @element_stack.top
-			@previous_class.addMethod @previous_method
-		elif [[ @previous_parameter != @nullptr ]]; then
-			@element_stack.pop >/dev/null
-			@previous_method=@dynamic_cast<Method> @element_stack.top
-			@previous_method.addParameter @previous_parameter
-			@element_stack.pop >/dev/null
-			@previous_class=@dynamic_cast<Class> @element_stack.top
-			@previous_class.addMethod @previous_method
-		fi
-		@Class* final_add=@dynamic_cast<Class> @element_stack.pop
-		if [[ @final_add != @nullptr ]]; then
-			@this.addClass @final_add
-		fi
-	}
+			# Do we see a class declaration on this line?
+			# Scan for '@class ClassName [: parentClassName] {'
+			if grep -qE '^[[:space:]]*@class[[:space:]]+[A-Za-z_][A-Za-z0-9_]*([[:space:]]*:[[:space:]]*[A-Za-z_][A-Za-z0-9_]*)?[[:space:]]*\{' <<< "$line"; then
+				# Extract class name and optional parent class name
+				local class_declaration=@(grep -oE '^[[:space:]]*@class[[:space:]]+[A-Za-z_][A-Za-z0-9_]*([[:space:]]*:[[:space:]]*[A-Za-z_][A-Za-z0-9_]*)?[[:space:]]*\{' <<< "$line")
+				local class_name=@(echo "$class_declaration" | grep -oE '[A-Za-z_][A-Za-z0-9_]*' | head -n 2 | tail -n 1)
+				local parent_class_name=""
+				if grep -qE ':[[:space:]]*[A-Za-z_][A-Za-z0-9_]*' <<< "$class_declaration"; then
+					parent_class_name=@(echo "$class_declaration" | grep -oE ':[[:space:]]*[A-Za-z_][A-Za-z0-9_]*' | head -n 1 | tr -d ' :')
+				fi
 
-	##METHOD public processClassesOnHold
-	### Processes classes that were put on hold until their parent classes were processed.
-	@public @method processClassesOnHold {
-		# While the classes_on_hold array is not empty, process the classes
-		local initial_count=@{#this.classes_on_hold[@]} iteration=0
-		local current_count=$initial_count
-		while [[ $current_count -gt 0 ]]; do
-			local hold_copy=(@{this.classes_on_hold[@]})
-			@this.classes_on_hold=()
-			echo "Iteration $iteration: Processing classes on hold (${#hold_copy[@]} remaining)..."
-			for c in ${hold_copy[@]}; do
-				@Class* class_=$c
-				if [[ @class_ == @nullptr ]]; then
+				@Class* class_=@new Class
+				@class_.name="$class_name"
+				@class_.sourceFile="@(basename $file)"
+				if [[ -n "$parent_class_name" ]]; then
+					@class_.parentClassName="$parent_class_name"
+					if ! @class_.inherit "@(@this.findClassByName "$parent_class_name")"; then
+						# Parent class not found yet, will need to resolve later
+						>&2 echo "Note: Parent class '$parent_class_name' for class '$class_name' not found yet, will resolve later"
+						@this.classes_with_unknown_parents.push "@class_"
+					fi
+				fi
+				# Otherwise, the parent has been set via inherit method
+				# And all members/methods have been inherited (apart from those overridden)
+
+				echo "Processing class '@{class_.name}' in file '$file' [line $line_number]"
+				@this.classes.push "@class_"
+
+				# If there's a latest comment, set it as the class description
+				if [[ -n "$latestComment" ]]; then
+					@class_.description="$latestComment"
+					latestComment=""
+				fi
+				continue
+			fi
+
+			# Do we see a data member declaration on this line?
+			# Scan for '@(public|private|protected) identifier'
+			# OR: '@(public|private|protected) @Type[*] identifier'
+			if grep -qE '^[[:space:]]*@(public|private|protected)[[:space:]]+(@[A-Za-z_][A-Za-z0-9_]*\*?[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*(=.+)?$' <<< "$line"; then
+				if @this.classes.empty; then
+					>&2 echo "Error: Found member declaration outside of class in file '$file' [line $line_number]"
 					continue
 				fi
+				# Extract scope, optional type, and member name
+				local member_declaration=@(grep -oE '^[[:space:]]*@(public|private|protected)[[:space:]]+(@[A-Za-z_][A-Za-z0-9_]*\*?[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*' <<< "$line")
+				local scope=@(echo "$member_declaration" | grep -oE '@(public|private|protected)' | tr -d '@')
+				local member_declaration_without_scope=@(echo "$member_declaration" | sed -E 's/^[[:space:]]*@(public|private|protected)[[:space:]]+//')
+				local type_and_name=@(echo "$member_declaration_without_scope" | grep -oE '(@[A-Za-z_][A-Za-z0-9_]*\*?[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*')
+				local type="Primitive"
+				local member_name=""
 
-				# Check if the parent class has been processed
-				@Class* parentClass=@dynamic_cast<Class> @(@this.getClass "@class_.parent")
-				if [[ @parentClass != @nullptr ]]; then
-					echo "Processing held class: @class_.name"
-					# Re-scan the class file
-					@this.scanFile "@class_.sourceFile"
+				if grep -qE '^@[A-Za-z_][A-Za-z0-9_]*\*?[[:space:]]+' <<< "$type_and_name"; then
+					type=@(echo "$type_and_name" | grep -oE '^@[A-Za-z_][A-Za-z0-9_]*\*?' | tr -d '@ ')
+					member_name=@(echo "$type_and_name" | grep -oE '[A-Za-z_][A-Za-z0-9_]*$')
 				else
-					>&2 echo "Still waiting for parent class '@class_.parent' to be processed for class '@class_.name'."
-				fi
-			done
-
-			# The theoretical maximum number of iterations is the initial count of classes_on_hold
-			if [[ $iteration -gt $initial_count ]]; then
-				>&2 echo "Warning: Classes on hold were not processed after $iteration iterations. This may indicate a circular dependency or missing parent class."
-				break
-			fi
-
-			iteration=$((iteration + 1))
-			current_count=@{#this.classes_on_hold[@]}
-		done
-	}
-
-	##METHOD public scanDirectory
-	### Scans the source directory for Bash++ source files and processes them.
-	@public @method scanDirectory {
-		echo "Scanning directory: @this.directory"
-		local files=($(find "@this.directory" -type f)) i=0
-		while [[ $i -lt ${#files[@]} ]]; do
-			echo "Scanning file: ${files[$i]}"
-			@this.scanFile "${files[$i]}"
-			i=$((i + 1))
-		done
-
-		# Process any classes that were put on hold
-		@this.processClassesOnHold
-	}
-
-	##METHOD public print
-	### Prints the documentation in the specified format (xml or md).
-	@public @method print {
-		local preambleOpen="<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" preambleClose=""
-		local preambleContent=""
-
-		local documentOpen="<document>\n" documentClose="</document>\n"
-		local documentNameOpen="	<name>" documentNameClose="</name>\n"
-		local classOpen="	<class>\n" classClose="	</class>\n"
-		local classFileOpen="		<file>" classFileClose="</file>\n"
-		local classNameOpen="		<name>" classNameClose="</name>\n"
-		local classDescriptionOpen="		<description>" classDescriptionClose="</description>\n"
-		local memberSectionOpen=""
-		local memberOpen="		<member>\n" memberClose="		</member>\n"
-		local memberNameOpen="			<name>" memberNameClose="</name>\n"
-		local memberTypeOpen="			<type>" memberTypeClose="</type>\n"
-		local memberScopeOpen="			<scope>" memberScopeClose="</scope>\n"
-		local memberScopeKeywordOpen="" memberScopeKeywordClose=""
-		local memberDescriptionOpen="			<description>" memberDescriptionClose="</description>\n"
-		local methodSectionOpen=""
-		local methodOpen="		<method>\n" methodClose="		</method>\n"
-		local methodNameOpen="			<name>" methodNameClose="</name>\n"
-		local methodScopeOpen="			<scope>" methodScopeClose="</scope>\n"
-		local methodScopeKeywordOpen="" methodScopeKeywordClose=""
-		local methodDescriptionOpen="			<description>" methodDescriptionClose="</description>\n"
-		local parameterSectionOpen=""
-		local parameterOpen="			<parameter>\n" parameterClose="			</parameter>\n"
-		local parameterNameOpen="				<name>" parameterNameClose="</name>\n"
-		local parameterTypeOpen="				<type>" parameterTypeClose="</type>\n"
-		local parameterDescriptionOpen="				<description>" parameterDescriptionClose="</description>\n"
-		local exampleMethodUsageOpen="			<example>" exampleMethodUsageClose="</example>\n"
-
-
-		if [[ "@this.mode" == "md" ]]; then
-			preambleOpen="---\n" preambleClose="---\n"
-
-			documentOpen="" documentClose="\n"
-			documentNameOpen="# " documentNameClose="\n"
-			classOpen="" classClose="\n"
-			classFileOpen="\n\`\@include <" classFileClose=">\`\n\n"
-			classNameOpen="\n# Class: " classNameClose="\n\n"
-			classDescriptionOpen="" classDescriptionClose="\n"
-			memberSectionOpen="\n## Data Members\n\n"
-			memberOpen="" memberClose="\n"
-			memberNameOpen=" - \`" memberNameClose="\`\n"
-			memberTypeOpen="   - **Type**: \`" memberTypeClose="\`\n"
-			memberScopeOpen="   - **Scope**: " memberScopeKeywordOpen="\`" memberScopeKeywordClose="\`" memberScopeClose="\n"
-			memberDescriptionOpen="   - " memberDescriptionClose="\n"
-			methodSectionOpen="\n## Methods\n\n"
-			methodOpen="" methodClose="\n"
-			methodNameOpen="### " methodNameClose="\n\n"
-			methodScopeOpen="**Scope**: " methodScopeKeywordOpen="\`" methodScopeKeywordClose="\`" methodScopeClose="\n\n"
-			methodDescriptionOpen="" methodDescriptionClose="\n"
-			parameterSectionOpen="\n#### Parameters\n\n"
-			parameterOpen="" parameterClose="\n"
-			parameterNameOpen=" - \`" parameterNameClose="\`\n"
-			parameterTypeOpen="   - **Type**: \`" parameterTypeClose="\`\n"
-			parameterDescriptionOpen="   - " parameterDescriptionClose="\n"
-			exampleMethodUsageOpen="\nUsage: \`" exampleMethodUsageClose="\`\n"
-		fi
-
-		local i=0 size=@{#this.classes[@]}
-
-		if [[ -z "@this.output_directory" ]]; then
-			echo -n -e "$documentOpen"
-			echo -n -e "$documentNameOpen@{this.name}$documentNameClose"
-		fi
-
-		while [[ $i -lt $size ]]; do
-			@Class* current_class=@dynamic_cast<Class> @{this.classes[$i]}
-
-			if [[ "@this.mode" == "md" ]]; then
-				preambleContent="title: @{current_class.name}\n"
-				@Class* parentClass=@dynamic_cast<Class> @current_class.parent
-				if [[ @parentClass != @nullptr ]]; then
-					preambleContent+="parent: @{parentClass.name}\n"
-				fi
-				local oneLineDescription=@(echo -e "@{current_class.description}" | head -n 1)
-				preambleContent+="description: $oneLineDescription\n"
-				preambleContent+="sourceFile: @(basename @{current_class.sourceFile})\n"
-			fi
-
-			local output_file="/proc/self/fd/1"
-			if ! [[ -z "@this.output_directory" ]]; then
-				output_file="@{this.output_directory}/@{current_class.name}.@{this.mode}"
-			fi
-
-			echo -n -e "$preambleOpen$preambleContent$preambleClose" > "$output_file"
-
-			echo -n -e "$classOpen" >> "$output_file"
-			echo -n -e "$classNameOpen@{current_class.name}$classNameClose" >> "$output_file"
-			echo -n -e "$classFileOpen@{current_class.file}$classFileClose" >> "$output_file"
-			echo -n -e "$classDescriptionOpen@{current_class.description}$classDescriptionClose" >> "$output_file"
-
-			local j=0 membersSize=@{#current_class.members[@]}
-			if [[ $membersSize -gt 0 ]]; then
-				echo -n -e "$memberSectionOpen" >> "$output_file"
-			fi
-			while [[ $j -lt $membersSize ]]; do
-				@Member* current_member=@dynamic_cast<Member> @{current_class.members[$j]}
-				echo -n -e "$memberOpen" >> "$output_file"
-				echo -n -e "$memberNameOpen\@@{current_class.name}.@{current_member.name}$memberNameClose" >> "$output_file"
-				echo -n -e "$memberTypeOpen@{current_member.type}$memberTypeClose" >> "$output_file"
-
-				local scope_color_coding=""
-				local scope_color_coding_end="</span>\n"
-				case "@{current_member.scope}" in
-					"public")
-						scope_color_coding="<span style=\"color: green;\">"
-						;;
-					"protected")
-						scope_color_coding="<span style=\"color: purple;\">"
-						;;
-					"private")
-						scope_color_coding="<span style=\"color: red;\">"
-						;;
-				esac
-
-				if [[ "@this.mode" != "md" ]]; then
-					scope_color_coding=""
-					scope_color_coding_end=""
+					member_name="$type_and_name"
 				fi
 
-				echo -n -e "$memberScopeOpen${scope_color_coding}$memberScopeKeywordOpen@{current_member.scope}$memberScopeKeywordClose${scope_color_coding_end}$memberScopeClose" >> "$output_file"
-				echo -n -e "$memberDescriptionOpen" >> "$output_file"
-				echo -n -e "@{current_member.description}" >> "$output_file"
-				echo -n -e "$memberDescriptionClose" >> "$output_file"
-				echo -n -e "$memberClose" >> "$output_file"
-				j=$((j + 1))
-			done
+				@Class* current_class=@this.classes.back
+				local typeString=""
+				if [[ "$type" != "Primitive" ]]; then
+					typeString="\@$type "
+				fi
+				echo "  Adding datamember: \@${scope} ${typeString}\@@{current_class.name}.${member_name} [line $line_number]"
 
-			local j=0 methodsSize=@{#current_class.methods[@]}
-			if [[ $methodsSize -gt 0 ]]; then
-				echo -n -e "$methodSectionOpen" >> "$output_file"
+				@Member* member_=@new Member
+				@member_.name="$member_name"
+				@member_.type="$type"
+				@member_.scope="$scope"
+				@current_class.addMember "@member_" &>/dev/null
+
+				# If there's a latest comment, set it as the member description
+				if [[ -n "$latestComment" ]]; then
+					@member_.description="$latestComment"
+					latestComment=""
+				fi
+				continue
 			fi
-			while [[ $j -lt $methodsSize ]]; do
-				@Method* current_method=@dynamic_cast<Method> @{current_class.methods[$j]}
-				echo -n -e "$methodOpen" >> "$output_file"
-				echo -n -e "$methodNameOpen\@@{current_class.name}.@{current_method.name}$methodNameClose" >> "$output_file"
 
-				local scope_color_coding=""
-				local scope_color_coding_end="</span>\n"
-				case "@{current_method.scope}" in
-					"public")
-						scope_color_coding="<span style=\"color: green;\">"
-						;;
-					"protected")
-						scope_color_coding="<span style=\"color: purple;\">"
-						;;
-					"private")
-						scope_color_coding="<span style=\"color: red;\">"
-						;;
-				esac
+			# Do we see a method declaration on this line?
+			# Scan for '[@virtual] @(public|private|protected) @method methodName [param1 @Type* param2 ...] {'
+			if grep -qE '^[[:space:]]*(@virtual[[:space:]]+)?@(public|private|protected)[[:space:]]+@method[[:space:]]+[A-Za-z_][A-Za-z0-9_]*([[:space:]]+(@[A-Za-z_][A-Za-z0-9_]*\*?[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*)*[[:space:]]*\{' <<< "$line"; then
+				if @this.classes.empty; then
+					>&2 echo "Error: Found method declaration outside of class in file '$file' [line $line_number]"
+					continue
+				fi
+				# Extract virtual flag, scope, method name, and parameters
+				local method_declaration=@(grep -oE '^[[:space:]]*(@virtual[[:space:]]+)?@(public|private|protected)[[:space:]]+@method[[:space:]]+[A-Za-z_][A-Za-z0-9_]*([[:space:]]+(@[A-Za-z_][A-Za-z0-9_]*\*?[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*)*[[:space:]]*\{' <<< "$line")
+				local is_virtual=0
+				if grep -qE '^@[[:space:]]*virtual' <<< "$method_declaration"; then
+					is_virtual=1
+				fi
+				local scope=@(echo "$method_declaration" | grep -oE '@(public|private|protected)' | tr -d '@')
+				local method_name=@(echo "$method_declaration" | grep -oE ' [A-Za-z_][A-Za-z0-9_]*' | tr -d ' ' | head -n 1)
 
-				if [[ "@this.mode" != "md" ]]; then
-					scope_color_coding=""
-					scope_color_coding_end=""
+				local parameters_section=@(echo "$method_declaration" | sed -E 's/^[[:space:]]*(@virtual[[:space:]]+)?@(public|private|protected)[[:space:]]+@method[[:space:]]+[A-Za-z_][A-Za-z0-9_]*//; s/\{[[:space:]]*$//')
+				# Parse the parameters_section into individual parameters
+				# Each parameter is of the form: '[@Type*] paramName'
+				# That is, it can be written as either 'paramName' or '@Type* paramName'
+				# We'll need to create a Parameter object for each parameter and add it to the method
+				local parameter_tokens=()
+				if [[ -n "$parameters_section" ]]; then
+					# Split by whitespace, then reassemble parameters
+					read -r -a raw_tokens <<< "$parameters_section"
+					local i=0
+					while [[ $i -lt ${#raw_tokens[@]} ]]; do
+						local token="${raw_tokens[$i]}"
+						if [[ "$token" == \@* ]]; then
+							# This token is a type, so the next token must be the parameter name
+							if [[ $((i + 1)) -lt ${#raw_tokens[@]} ]]; then
+								local param_name="${raw_tokens[$((i + 1))]}"
+								parameter_tokens+=("$token $param_name")
+								i=$((i + 2))
+							else
+								>&2 echo "Error: Incomplete parameter declaration in method '$method_name' in file '$file' [line $line_number]"
+								break
+							fi
+						else
+							# This token is a parameter name without a type
+							# That's a primitive parameter
+							parameter_tokens+=("$token")
+							i=$((i + 1))
+						fi
+					done
 				fi
 
-				echo -n -e "$methodScopeOpen${scope_color_coding}$methodScopeKeywordOpen@{current_method.scope}$methodScopeKeywordClose${scope_color_coding_end}$methodScopeClose" >> "$output_file"
-				echo -n -e "$methodDescriptionOpen@{current_method.description}$methodDescriptionClose" >> "$output_file"
-				echo -n -e "$exampleMethodUsageOpen\@@{current_class.name}.@{current_method.generateExample}$exampleMethodUsageClose" >> "$output_file"
+				echo "  Adding method: \@${scope} \@method ${method_name} ${parameters_section} [line $line_number]"
 
-				local k=0 parametersSize=@{#current_method.parameters[@]}
-				if [[ $parametersSize -gt 0 ]]; then
-					echo -n -e "$parameterSectionOpen" >> "$output_file"
+				@Class* current_class=@this.classes.back
+
+				@Method* method_=@new Method
+				@method_.name="$method_name"
+				@method_.scope="$scope"
+				if [[ $is_virtual -eq 1 ]]; then
+					@method_.virtual=1
 				fi
-				while [[ $k -lt $parametersSize ]]; do
-					@Parameter* current_parameter=@dynamic_cast<Parameter> @{current_method.parameters[$k]}
-					echo -n -e "$parameterNameOpen@{current_parameter.name}$parameterNameClose" >> "$output_file"
-					echo -n -e "$parameterTypeOpen@{current_parameter.type}$parameterTypeClose" >> "$output_file"
-					echo -n -e "$parameterDescriptionOpen@{current_parameter.description}$parameterDescriptionClose" >> "$output_file"
-					echo -n -e "$parameterClose" >> "$output_file"
-					k=$((k + 1))
+				@current_class.addMethod "@method_" &>/dev/null
+
+				# If there's a latest comment, set it as the method description
+				if [[ -n "$latestComment" ]]; then
+					@method_.description="$latestComment"
+					latestComment=""
+				fi
+
+				# If there's a returns comment, set it
+				if [[ -n "$latestReturnsComment" ]]; then
+					@method_.returnsComment="$latestReturnsComment"
+					latestReturnsComment=""
+				fi
+
+				# If there's an outputs comment, set it
+				if [[ -n "$latestOutputsComment" ]]; then
+					@method_.outputsComment="$latestOutputsComment"
+					latestOutputsComment=""
+				fi
+
+				# Iterate over parameter tokens and create Parameter objects
+				for param_token in "${parameter_tokens[@]}"; do
+					local param_type="Primitive"
+					local param_name=""
+
+					if grep -qE '^@[A-Za-z_][A-Za-z0-9_]*\*?[[:space:]]+' <<< "$param_token"; then
+						param_type=@(echo "$param_token" | grep -oE '^@[A-Za-z_][A-Za-z0-9_]*\*?' | tr -d '@ ')
+						param_name=@(echo "$param_token" | grep -oE '[A-Za-z_][A-Za-z0-9_]*$')
+					else
+						param_name="$param_token"
+					fi
+
+					@Parameter* parameter_=@new Parameter
+					@parameter_.name="$param_name"
+					@parameter_.type="$param_type"
+
+					# If there's a description for this parameter, set it
+					if [[ -n "${parameter_descriptions[$param_name]}" ]]; then
+						@parameter_.description="${parameter_descriptions[$param_name]}"
+					fi
+
+					@method_.addParameter "@parameter_"
 				done
-				echo -n -e "$methodClose" >> "$output_file"
-				j=$((j + 1))
-			done
-			echo -n -e "$classClose" >> "$output_file"
-			i=$((i + 1))
+
+				# Clear parameter descriptions for next method
+				parameter_descriptions=()
+				continue
+			fi
 		done
-		if [[ -z "@this.output_directory" ]]; then
-			echo -n -e "$documentClose"
+	}
+
+	## Scans the source directory for all files and processes them.
+	@public @method scanDirectory {
+		if [[ ! -d "@this.sourceDirectory" ]]; then
+			>&2 echo "Error: Source directory '@this.sourceDirectory' does not exist"
+			return 1
 		fi
+
+		for file in @(find "@this.sourceDirectory" -type f); do
+			@this.scanFile "$file"
+		done
+
+		# If any classes had unknown parents, try to resolve them now
+		for c in @this.classes_with_unknown_parents.all; do
+			@Class* class_="$c"
+			if ! @class_.inherit "@(@this.findClassByName "@class_.parentClassName")"; then
+				>&2 echo "Warning: Could not resolve parent class '@{class_.parentClassName}' for class '@{class_.name}'"
+			else
+				>&2 echo "Resolved parent class '@{class_.parentClassName}' for class '@{class_.name}'"
+			fi
+		done
+	}
+
+	## Prints the documentation in the specified output format.
+	@public @method print {
+		@DocumentFormat* format
+		if [[ "@this.outputFormat" == "xml" ]]; then
+			@format=@new XMLFormat
+		elif [[ "@this.outputFormat" == "md" ]]; then
+			@format=@new MDFormat
+		else
+			>&2 echo "Error: Unknown output format '@this.outputFormat'"
+			return 1
+		fi
+
+		for c in @this.classes.all; do
+			@Class* class_="$c"
+			
+			local output_file="@this.outputDirectory/@{class_.name}.@{format.extension}"
+
+			>&2 echo "Generating documentation for class '@{class_.name}' in file '$output_file'"
+
+			@format.printClass "@class_" > "$output_file"
+		done
 	}
 }

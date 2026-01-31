@@ -1,80 +1,42 @@
-# bpp-autodoc
-# Copyright (C) 2025 Andrew S. Rightenburg
-
 @include_once "src/Document.bpp"
 
-## This is a simple and rather primitive tool
-## To automatically generate documentation for Bash++ classes and methods
-## By reading specially-formatted comments
-
-## The format is roughly as follows:
-
-## 1. Each file to be documented should start with a comment block
-##  Reading: #AUTODOC#
-##  If this block does not exist, autodoc will skip the file
-
-## 2. Each file should end with a comment block
-##  Reading: #ENDAUTODOC#
-##  This block is used to signal the end of the file
-
-## 3. Level headings
-##   Level headings are indicated by the number of '#' characters
-
-## 4. Keywords
-##   Recognized keywords:
-##     CLASS: - The name of the class
-##       This keyword must be followed by the class name
-##     METHOD: - The name of the method
-##       This keyword must be followed by the method scope and name
-##     PARAM: - The name of a parameter given to a method
-##       This keyword must be followed by the parameter scope, type and name
-##     MEMBER: - The name of a member variable
-##       This keyword must be followed by the member scope, type and name
-
-## Any heading which is not preceded by a recognized keyword is interpreted as a description
-## Of the heading above it
-
-## 5. Example
-##  #AUTODOC#
-##  #CLASS Class1
-##  ## Description of Class1
-##  ##METHOD public Method1
-##  ### Description of Method1
-##  ###PARAM primitive x
-
+@Document doc
 
 function displayHelp() {
-	echo "Usage: autodoc-bpp -d <directory> -n <name> [options]"
+	echo "Usage: autodoc-bpp [options]"
 	echo "Options:"
-	echo "  -d <directory>   The directory to scan to create documentation"
-	echo "  -n <name>        The name of the document"
-	echo "  -m <mode>        The output mode. Acceptable modes are 'xml' and 'md'"
-	echo "  -e               Drop extensions from file names in output"
-	echo "  -o <directory>   Output each class to a separate file in the given directory"
+	echo "  -d <directory> The source directory to scan for files"
+	echo "  -m <mode>      The output mode. Acceptable: 'xml' or 'md'. Default: 'xml'"
+	echo "  -o <directory> The output directory for the documentation files"
+	echo "  -h             Display this help message"
 }
 
-directory_to_scan=""
-document_name=""
-mode="xml"
-drop_extensions="false"
-output_directory=""
-
-while getopts "ed:m:n:o:" opt; do
+while getopts "d:m:o:h" opt; do
 	case $opt in
-		e)
-			drop_extensions="true"
-			;;
 		d)
-			directory_to_scan="$OPTARG"
+			if ! @doc.setSourceDirectory "$OPTARG"; then
+				>&2 echo "Error: Source directory '$OPTARG' does not exist or is not a directory"
+				displayHelp
+				exit 1
+			fi
 			;;
 		m)
-			mode="$OPTARG"
-			;;
-		n)
-			document_name="$OPTARG"
+			if ! @doc.setMode "$OPTARG"; then
+				>&2 echo "Error: Invalid mode '$OPTARG'. Acceptable modes are 'xml' and 'md'"
+				displayHelp
+				exit 1
+			fi
 			;;
 		o)
-			output_directory="$OPTARG"
+			if ! @doc.setOutputDirectory "$OPTARG"; then
+				>&2 echo "Error: Output directory '$OPTARG' does not exist or is not a directory"
+				displayHelp
+				exit 1
+			fi
+			;;
+		h)
+			displayHelp
+			exit 0
 			;;
 		\?)
 			displayHelp
@@ -83,24 +45,11 @@ while getopts "ed:m:n:o:" opt; do
 	esac
 done
 
-if ! [[ -d "$directory_to_scan" ]]; then
-	echo "Error: $directory_to_scan is not a directory"
+if ! @doc.isReady; then
+	>&2 echo "Error: Source directory and output directory must be set"
 	displayHelp
 	exit 1
 fi
-
-if [[ -z "$document_name" ]]; then
-	echo "Error: No document name given"
-	displayHelp
-	exit 1
-fi
-
-@Document doc
-@doc.setDirectory "$directory_to_scan"
-@doc.setName "$document_name"
-@doc.setMode "$mode"
-@doc.setDropExtensions "$drop_extensions"
-@doc.setOutputDirectory "$output_directory"
 
 @doc.scanDirectory
 @doc.print

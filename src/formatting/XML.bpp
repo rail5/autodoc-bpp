@@ -1,0 +1,80 @@
+@include_once "Format.bpp"
+
+@class XMLFormat : DocumentFormat {
+	@constructor {
+		@this.extension="xml"
+
+		@this.classOpen="	<class>\n"
+		@this.classClose="</class>\n"
+
+		@this.classFilenameOpen="		<file>"
+		@this.classFilenameClose="</file>\n"
+
+		@this.classNameOpen="		<name>"
+		@this.classNameClose="</name>\n"
+
+		@this.classDescriptionOpen="		<description>"
+		@this.classDescriptionClose="</description>\n"
+
+
+		@this.dataMemberSectionOpen=""
+		@this.dataMemberSectionClose=""
+
+		@this.dataMemberOpen="		<member>\n"
+		@this.dataMemberClose="		</member>\n"
+
+		@this.dataMemberNameOpen="			<name>"
+		@this.dataMemberNameClose="</name>\n"
+
+		@this.dataMemberTypeOpen="			<type>"
+		@this.dataMemberTypeClose="</type>\n"
+
+		@this.dataMemberScopeOpen="			<scope>"
+		@this.dataMemberScopeClose="</scope>\n"
+
+		@this.dataMemberDescriptionOpen="			<description>"
+		@this.dataMemberDescriptionClose="</description>\n"
+
+
+		@this.methodSectionOpen=""
+		@this.methodSectionClose=""
+
+		@this.methodOpen="		<method>\n"
+		@this.methodClose="		</method>\n"
+
+		@this.methodNameOpen="			<name>"
+		@this.methodNameClose="</name>\n"
+
+		@this.methodDescriptionOpen="			<description>"
+		@this.methodDescriptionClose="</description>\n"
+
+		@this.methodScopeOpen="			<scope>"
+		@this.methodScopeClose="</scope>\n"
+		
+		@this.methodReturnsOpen="			<returns>"
+		@this.methodReturnsClose="</returns>\n"
+
+		@this.methodOutputsOpen="			<outputs>"
+		@this.methodOutputsClose="</outputs>\n"
+
+
+		@this.methodParameterSectionOpen=""
+		@this.methodParameterSectionClose=""
+
+		@this.methodParameterOpen="			<parameter>\n"
+		@this.methodParameterClose="			</parameter>\n"
+
+		@this.methodParameterNameOpen="				<name>"
+		@this.methodParameterNameClose="</name>\n"
+
+		@this.methodParameterTypeOpen="				<type>"
+		@this.methodParameterTypeClose="</type>\n"
+
+		@this.methodParameterDescriptionOpen="				<description>"
+		@this.methodParameterDescriptionClose="</description>\n"
+
+
+		@this.exampleMethodUsageOpen="		<example>\n"
+		@this.exampleMethodUsageClose="		</example>\n"
+	}
+}

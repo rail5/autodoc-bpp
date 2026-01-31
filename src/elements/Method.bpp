@@ -1,0 +1,52 @@
+@include_once "Element.bpp"
+@include_once "Parameter.bpp"
+
+@include_once "../modified-stdlib/TypedArray"
+
+# Represents a method in a class.
+@class Method : Element {
+	# The scope of the method (default public).
+	@public scope="public"
+
+	# Whether the method is virtual (default false).
+	@public virtual=0
+
+	# A natural-language comment describing the possible exit status codes of the method.
+	@public returnsComment
+
+	# A natural-language comment describing the output of the method (what it echoes).
+	@public outputsComment
+
+	# An array of pointers to Parameter objects that represent the parameters of the method.
+	# If the method has no parameters, this array is empty.
+	@public @TypedArray parameters
+
+	@constructor {
+		@this.parameters.set_type "Parameter"
+	}
+
+	# Adds a parameter to the method.
+	# @param parameter A pointer to a Parameter object that represents the parameter to add.
+	@public @method addParameter @Parameter* parameter {
+		@this.parameters.push "@parameter"
+	}
+
+	# Generates an example of how to use the method.
+	@public @method generateExample {
+		local example="@this.name"
+
+		for parameterPtr in @this.parameters.all; do
+			@Parameter* current_parameter=$parameterPtr
+
+			local typeName=@(echo @{current_parameter.type} | tr '[:upper:]' '[:lower:]')
+
+			if [[ "$typeName" == "primitive" ]]; then
+				example+=" \$@{current_parameter.name}"
+			else
+				example+=" &\@@{current_parameter.name}"
+			fi
+		done
+
+		echo "$example"
+	}
+}

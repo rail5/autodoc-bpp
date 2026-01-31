@@ -1,0 +1,131 @@
+@include_once "Element.bpp"
+@include_once "Method.bpp"
+@include_once "Member.bpp"
+
+@include_once "../modified-stdlib/TypedArray"
+
+## Represents a Bash++ class
+@class Class : Element {
+	## The file to include if you want to use this class.
+	@public includeFile
+
+	## The source file where the class is defined, as it will be found by the autodoc-bpp tool.
+	## This may be a different location from 'includeFile', which is where the class will be found at runtime.
+	@public sourceFile
+
+	## A pointer to the parent class, if any.
+	@public @Class* parent
+
+	## The name of the parent class, if any.
+	@public parentClassName
+
+	## An array of pointers to Method objects that represent the methods of the class.
+	@public @TypedArray methods
+
+	## An array of pointers to Member objects that represent the data members of the class.
+	@public @TypedArray members
+
+	@constructor {
+		@this.methods.set_type "Method"
+		@this.members.set_type "Member"
+	}
+
+	## Get a method by its name.
+	## Echoes a pointer to the Method object if found.
+	## @param name The name of the method to get.
+	## @returns 1 if no such method exists, 0 otherwise.
+	## @outputs A pointer to the Method object if found.
+	@public @method getMethod name {
+		for m in @this.methods.all; do
+			@Method* method_="$m"
+			if [[ @method_.name == "$name" ]]; then
+				echo "$m"
+				return
+			fi
+		done
+		return 1
+	}
+
+	## Get the most recently added method.
+	## Echoes a pointer to the Method object.
+	@public @method getLatestMethod {
+		echo @this.methods.back
+	}
+
+	## Add a method to the class.
+	## @param method_ A pointer to the Method object to add.
+	@public @method addMethod @Method* method_ {
+		if [[ @method_ == @nullptr ]]; then
+			return 1
+		fi
+		# Check if the method already exists
+		if @this.getMethod "@method_.name" >/dev/null; then
+				# Kind of a hack:
+				# If the new method we're adding is marked 'virtual',
+				# Mark the existing method as 'virtual' too.
+				# The reason for this is that 'inherit' is called after methods are added,
+				# And attempts to add methods from the base class.
+				# That will fail, of course, if they were overridden, but we still want to preserve the 'virtual' status.
+				# Bash++ does not mandate that the 'virtual' keyword should be repeated in derived classes.
+				if [[ @method_.virtual -eq 1 ]]; then
+					@Method* existing_method=$(@this.getMethod "@method_.name")
+					existing_method.virtual=1
+					return 0
+				fi
+				>&2 echo "Error: Method '@method_.name' already exists in class '@this.name'"
+			return 1
+		fi
+		@this.methods.push "@method_"
+	}
+
+	## Get a member by its name.
+	## Echoes a pointer to the Member object if found.
+	## @param name The name of the member to get.
+	@public @method getMember name {
+		for m in @{this.members.all}; do
+			@Member* member_="$m"
+			if [[ @member_.name == "$name" ]]; then
+				echo "$m"
+				return
+			fi
+		done
+		return 1
+	}
+
+	## Add a member to the class.
+	## @param member_ A pointer to a Member object to add.
+	@public @method addMember @Member* member_ {
+		if [[ @member_ == @nullptr ]]; then
+			return 1
+		fi
+		# Check if the member already exists
+		if @this.getMember "@member_.name" >/dev/null; then
+				>&2 echo "Error: Member '@member_.name' already exists in class '@this.name'"
+			return 1
+		fi
+		@this.members.push "@member_"
+		return 0
+	}
+
+	## Set the parent class for this class.
+	## This method should only be called after the class has been fully defined.
+	## Inherits all members and methods from the parent class, as long as these have not been overridden.
+	## @param parent A pointer to the parent Class object.
+	@public @method inherit @Class* parent {
+		if [[ @parent == @nullptr ]]; then
+			return 1
+		fi
+		@this.parent="@parent"
+		# Inherit methods
+		for m in @{parent.methods.all}; do
+			@Method* method_="$m"
+			@this.addMethod "@method_" &>/dev/null
+		done
+		# Inherit data members
+		for m in @{parent.members.all}; do
+			@Member* member_="$m"
+			@this.addMember "@member_" &>/dev/null
+		done
+		return 0
+	}
+}

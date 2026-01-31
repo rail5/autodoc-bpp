@@ -1,0 +1,9 @@
+@include_once "Element.bpp"
+
+## Represents a parameter in a method or function.
+@class Parameter : Element {
+	## The type of the parameter (default Primitive).
+	## If the method takes a pointer to a non-primitive object as a parameter,
+	## the type should be set to the name of that class.
+	@public type="Primitive"
+}

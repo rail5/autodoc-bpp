@@ -1,0 +1,9 @@
+@include_once "Element.bpp"
+
+## Represents a data member in a class.
+@class Member : Element {
+	## The type of the member (default Primitive).
+	@public type="Primitive"
+	## The scope of the member (default public).
+	@public scope="public"
+}

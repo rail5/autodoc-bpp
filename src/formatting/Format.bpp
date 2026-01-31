@@ -1,0 +1,178 @@
+@include_once "../elements/Class.bpp"
+
+@class DocumentFormat {
+	@public extension
+
+	@public documentOpen
+	@public documentClose
+
+	@public classOpen
+	@public classClose
+
+	@public classFilenameOpen
+	@public classFilenameClose
+
+	@public classNameOpen
+	@public classNameClose
+
+	@public classDescriptionOpen
+	@public classDescriptionClose
+
+	@public dataMemberSectionOpen
+	@public dataMemberSectionClose
+
+	@public dataMemberOpen
+	@public dataMemberClose
+	
+	@public dataMemberNameOpen
+	@public dataMemberNameClose
+
+	@public dataMemberTypeOpen
+	@public dataMemberTypeClose
+
+	@public dataMemberScopeOpen
+	@public dataMemberScopeClose
+
+	@public dataMemberDescriptionOpen
+	@public dataMemberDescriptionClose
+
+	@public methodSectionOpen
+	@public methodSectionClose
+
+	@public methodOpen
+	@public methodClose
+
+	@public methodNameOpen
+	@public methodNameClose
+
+	@public methodDescriptionOpen
+	@public methodDescriptionClose
+
+	@public methodScopeOpen
+	@public methodScopeClose
+
+	@public methodReturnsOpen
+	@public methodReturnsClose
+
+	@public methodOutputsOpen
+	@public methodOutputsClose
+
+	@public methodParameterSectionOpen
+	@public methodParameterSectionClose
+
+	@public methodParameterOpen
+	@public methodParameterClose
+
+	@public methodParameterNameOpen
+	@public methodParameterNameClose
+
+	@public methodParameterTypeOpen
+	@public methodParameterTypeClose
+
+	@public methodParameterDescriptionOpen
+	@public methodParameterDescriptionClose
+
+	@public exampleMethodUsageOpen
+	@public exampleMethodUsageClose
+
+	## Echoes the given scope keyword, possibly with color coding.
+	## @param scope_keyword The scope keyword to print.
+	## @outputs The (possibly color-coded) scope keyword (no newline).
+	@virtual @private @method maybeColorCode scope_keyword {
+		echo -n -e "$scope_keyword"
+	}
+
+	@private @method printDataMembers c {
+		@Class* class_="$c" # Dirty cast for raw speed
+
+		for m in @class_.members.all; do
+			@Member* member="$m"
+
+			echo -n -e "@this.dataMemberOpen"
+			echo -n -e "@{this.dataMemberNameOpen}@{member.name}@{this.dataMemberNameClose}"
+			echo -n -e "@{this.dataMemberTypeOpen}@{member.type}@{this.dataMemberTypeClose}"
+
+			echo -n -e "@{this.dataMemberScopeOpen}@(@this.maybeColorCode "@{member.scope}")@{this.dataMemberScopeClose}"
+			
+			if [[ -n "@member.description" ]]; then
+				echo -n -e "@{this.dataMemberDescriptionOpen}@{member.description}@{this.dataMemberDescriptionClose}"
+			fi
+			echo -n -e "@this.dataMemberClose"
+		done
+	}
+
+	@private @method printMethods c {
+		@Class* class_="$c" # Dirty cast for raw speed
+
+		for m in @class_.methods.all; do
+			@Method* method_="$m"
+
+			echo -n -e "@this.methodOpen"
+			# @ClassName.methodName
+			echo -n -e "@{this.methodNameOpen}\@@{class_.name}.@{method_.name}@{this.methodNameClose}"
+			echo -n -e "@{this.methodScopeOpen}@(@this.maybeColorCode "@{method_.scope}")@{this.methodScopeClose}"
+
+			if [[ -n "@method_.description" ]]; then
+				echo -n -e "@{this.methodDescriptionOpen}@{method_.description}@{this.methodDescriptionClose}"
+			fi
+
+			if [[ -n "@method_.returnsComment" ]]; then
+				echo -n -e "@{this.methodReturnsOpen}@{method_.returnsComment}@{this.methodReturnsClose}"
+			fi
+
+			if [[ -n "@method_.outputsComment" ]]; then
+				echo -n -e "@{this.methodOutputsOpen}@{method_.outputsComment}@{this.methodOutputsClose}"
+			fi
+	
+			echo -n -e "@{this.exampleMethodUsageOpen}\@@{class_.name}.@{method_.generateExample}@{this.exampleMethodUsageClose}"
+
+			if ! @method_.parameters.empty; then
+				echo -n -e "@this.methodParameterSectionOpen"
+				for p in @method_.parameters.all; do
+					@Parameter* parameter_="$p"
+
+					echo -n -e "@this.methodParameterOpen"
+					echo -n -e "@{this.methodParameterNameOpen}@{parameter_.name}@{this.methodParameterNameClose}"
+					echo -n -e "@{this.methodParameterTypeOpen}@{parameter_.type}@{this.methodParameterTypeClose}"
+					echo -n -e "@{this.methodParameterDescriptionOpen}@{parameter_.description}@{this.methodParameterDescriptionClose}"
+					echo -n -e "@this.methodParameterClose"
+				done
+				echo -n -e "@this.methodParameterSectionClose"
+			fi
+
+			echo -n -e "@this.methodClose"
+		done
+	}
+
+	## Prints the documentation for a class.
+	## @param class_ The class to document.
+	## @outputs the documentation for the class.
+	## @returns 1 if the given class pointer is invalid, 0 otherwise.
+	@virtual @public @method printClass @Class* class_ {
+		if [[ @class_ == @nullptr ]]; then
+			return 1
+		fi
+
+		echo -n -e "@this.classOpen"
+		echo -n -e "@{this.classNameOpen}@{class_.name}@{this.classNameClose}"
+		echo -n -e "@{this.classFilenameOpen}@{class_.sourceFile}@{this.classFilenameClose}"
+
+		if [[ -n "@class_.description" ]]; then
+			echo -n -e "@{this.classDescriptionOpen}@{class_.description}@{this.classDescriptionClose}"
+		fi
+
+		# Data Members
+		if ! @class_.members.empty; then
+			echo -n -e "@this.dataMemberSectionOpen"
+			@this.printDataMembers "@class_"
+			echo -n -e "@this.dataMemberSectionClose"
+		fi
+
+		# Methods
+		if ! @class_.methods.empty; then
+			echo -n -e "@this.methodSectionOpen"
+			@this.printMethods "@class_"
+			echo -n -e "@this.methodSectionClose"
+		fi
+	}
+}

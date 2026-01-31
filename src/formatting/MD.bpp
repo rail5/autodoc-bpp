@@ -1,0 +1,117 @@
+@include_once "Format.bpp"
+
+@class MDFormat : DocumentFormat {
+	@constructor {
+		@this.extension="md"
+
+		@this.classOpen=""
+		@this.classClose="\n"
+
+		@this.classFilenameOpen="\n\`\@include <"
+		@this.classFilenameClose=">\`\n\n"
+
+		@this.classNameOpen="\n# Class: "
+		@this.classNameClose="\n\n"
+
+		@this.classDescriptionOpen=""
+		@this.classDescriptionClose="\n"
+
+
+		@this.dataMemberSectionOpen="## Data Members\n\n"
+		@this.dataMemberSectionClose="\n"
+
+		@this.dataMemberOpen=""
+		@this.dataMemberClose="\n"
+
+		@this.dataMemberNameOpen=" - \`"
+		@this.dataMemberNameClose="\`\n"
+
+		@this.dataMemberTypeOpen="   - **Type**: \`"
+		@this.dataMemberTypeClose="\`\n"
+
+		@this.dataMemberScopeOpen="   - **Scope**: "
+		@this.dataMemberScopeClose="\n"
+
+		@this.dataMemberDescriptionOpen="   - "
+		@this.dataMemberDescriptionClose="\n"
+
+
+		@this.methodSectionOpen="\n## Methods\n\n"
+		@this.methodSectionClose="\n"
+
+		@this.methodOpen=""
+		@this.methodClose="\n"
+
+		@this.methodNameOpen="### "
+		@this.methodNameClose="\n\n"
+
+		@this.methodDescriptionOpen=""
+		@this.methodDescriptionClose="\n\n"
+
+		@this.methodScopeOpen="**Scope**: "
+		@this.methodScopeClose="\n\n"
+
+		@this.methodReturnsOpen="**Returns**: "
+		@this.methodReturnsClose="\n\n"
+
+		@this.methodOutputsOpen="**Outputs**: "
+		@this.methodOutputsClose="\n\n"
+
+		@this.methodParameterSectionOpen="\n#### Parameters\n\n"
+		@this.methodParameterSectionClose="\n"
+
+		@this.methodParameterOpen=""
+		@this.methodParameterClose="\n\n"
+
+		@this.methodParameterNameOpen=" - \`"
+		@this.methodParameterNameClose="\`\n"
+
+		@this.methodParameterTypeOpen="   - **Type**: \`"
+		@this.methodParameterTypeClose="\`\n"
+
+		@this.methodParameterDescriptionOpen="   - "
+		@this.methodParameterDescriptionClose="\n"
+
+
+		@this.exampleMethodUsageOpen="\nUsage: \`"
+		@this.exampleMethodUsageClose="\`\n"
+	}
+
+	@public @method printClass @Class* class_ {
+		if [[ @class_ == @nullptr ]]; then
+			return 1
+		fi
+		# Print YAML front matter
+		echo "---"
+		echo "title: @{class_.name}"
+		if [[ -n "@{class_.parentClassName}" ]]; then
+			echo "parent: @{class_.parentClassName}"
+		fi
+
+		local oneLineDescription=@(echo -e "@{class_.description}" | head -n 1)
+		echo "description: $oneLineDescription"
+		echo "sourceFile: @{class_.sourceFile}"
+		echo "---"
+
+		# Then just do what we always do
+		@super.printClass @class_
+	}
+
+	@private @method maybeColorCode scope_keyword {
+		# Markdown formatting adds color coding via HTML <span> tags
+		case "$scope_keyword" in
+			"public")
+				echo -n -e "<span style=\"color: green;\">$scope_keyword</span>"
+				;;
+			"private")
+				echo -n -e "<span style=\"color: red;\">$scope_keyword</span>"
+				;;
+			"protected")
+				echo -n -e "<span style=\"color: purple;\">$scope_keyword</span>"
+				;;
+			*)
+				echo -n -e "$scope_keyword"
+				;;
+		esac
+	}
+}

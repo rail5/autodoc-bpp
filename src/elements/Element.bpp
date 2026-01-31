@@ -1,0 +1,9 @@
+## The base class for all autodoc elements.
+## These elements include classes, methods, parameters, data members...
+@class Element {
+	## The name of the element.
+	@public name
+
+	## A natural-language description of the element.
+	@public description
+}
