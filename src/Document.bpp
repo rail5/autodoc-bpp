@@ -441,6 +441,9 @@
 	##METHOD public print
 	### Prints the documentation in the specified format (xml or md).
 	@public @method print {
+		local preambleOpen="<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" preambleClose=""
+		local preambleContent=""
+
 		local documentOpen="<document>\n" documentClose="</document>\n"
 		local documentNameOpen="	<name>" documentNameClose="</name>\n"
 		local classOpen="	<class>\n" classClose="	</class>\n"
@@ -469,6 +472,8 @@
 
 
 		if [[ "@this.mode" == "md" ]]; then
+			preambleOpen="---\n" preambleClose="---\n"
+
 			documentOpen="" documentClose="\n"
 			documentNameOpen="# " documentNameClose="\n"
 			classOpen="" classClose="\n"
@@ -504,12 +509,25 @@
 		while [[ $i -lt $size ]]; do
 			@Class* current_class=@dynamic_cast<Class> @{this.classes[$i]}
 
+			if [[ "@this.mode" == "md" ]]; then
+				preambleContent="title: @{current_class.name}\n"
+				@Class* parentClass=@dynamic_cast<Class> @current_class.parent
+				if [[ @parentClass != @nullptr ]]; then
+					preambleContent+="parent: @{parentClass.name}\n"
+				fi
+				local oneLineDescription=@(echo -e "@{current_class.description}" | head -n 1)
+				preambleContent+="description: $oneLineDescription\n"
+				preambleContent+="sourceFile: @(basename @{current_class.sourceFile})\n"
+			fi
+
 			local output_file="/proc/self/fd/1"
 			if ! [[ -z "@this.output_directory" ]]; then
 				output_file="@{this.output_directory}/@{current_class.name}.@{this.mode}"
 			fi
 
-			echo -n -e "$classOpen" > "$output_file"
+			echo -n -e "$preambleOpen$preambleContent$preambleClose" > "$output_file"
+
+			echo -n -e "$classOpen" >> "$output_file"
 			echo -n -e "$classNameOpen@{current_class.name}$classNameClose" >> "$output_file"
 			echo -n -e "$classFileOpen@{current_class.file}$classFileClose" >> "$output_file"
 			echo -n -e "$classDescriptionOpen@{current_class.description}$classDescriptionClose" >> "$output_file"

@@ -1,5 +1,7 @@
 #AUTODOC#
 
+@include_once "Element.bpp"
+
 #CLASS Class : Element
 ## Represents a Bash++ class
 @class Class : Element {
