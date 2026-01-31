@@ -73,6 +73,11 @@
 		IFS= read -r -d '' fileContents < <(cat "$file")
 		mapfile -t outputLines < <(echo "$fileContents")
 
+		# We can skip this entire file really quickly if we don't see the phrase '@class' anywhere
+		if ! grep -q '@class' <<< "$fileContents"; then
+			return
+		fi
+
 		local line_number=0
 		for line in "${outputLines[@]}"; do
 			line_number=$((line_number + 1))
