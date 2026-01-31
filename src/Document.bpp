@@ -63,7 +63,7 @@
 		local fileContents outputLines
 		local currently_parsing_multiline_comment=0
 
-		local ignore_next_element=0
+		local ignore_next_element=0 ignoring_entire_class=0
 
 		# Specifically for METHOD processing:
 		local latestReturnsComment="" latestOutputsComment=""
@@ -144,8 +144,15 @@
 			if grep -qE '^[[:space:]]*@class[[:space:]]+[A-Za-z_][A-Za-z0-9_]*([[:space:]]*:[[:space:]]*[A-Za-z_][A-Za-z0-9_]*)?[[:space:]]*\{' <<< "$line"; then
 				if [[ $ignore_next_element -eq 1 ]]; then
 					ignore_next_element=0
+					ignoring_entire_class=1
 					latestComment=""
 					continue
+				fi
+				if [[ $ignoring_entire_class -eq 1 ]]; then
+					# We just finished ignoring an entire class (incl. all of its members, methods)
+					# We hit here **after** that class, when we then see **another** class declaration (which should not be ignored)
+					# Reset the flag and carry on
+					ignoring_entire_class=0
 				fi
 				# Extract class name and optional parent class name
 				local class_declaration=@(grep -oE '^[[:space:]]*@class[[:space:]]+[A-Za-z_][A-Za-z0-9_]*([[:space:]]*:[[:space:]]*[A-Za-z_][A-Za-z0-9_]*)?[[:space:]]*\{' <<< "$line")
@@ -184,7 +191,7 @@
 			# Scan for '@(public|private|protected) identifier'
 			# OR: '@(public|private|protected) @Type[*] identifier'
 			if grep -qE '^[[:space:]]*@(public|private|protected)[[:space:]]+(@[A-Za-z_][A-Za-z0-9_]*\*?[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*(=.+)?$' <<< "$line"; then
-				if [[ $ignore_next_element -eq 1 ]]; then
+				if [[ $ignore_next_element -eq 1 ]] || [[ $ignoring_entire_class -eq 1 ]]; then
 					ignore_next_element=0
 					latestComment=""
 					continue
@@ -232,7 +239,7 @@
 			# Do we see a method declaration on this line?
 			# Scan for '[@virtual] @(public|private|protected) @method methodName [param1 @Type* param2 ...] {'
 			if grep -qE '^[[:space:]]*(@virtual[[:space:]]+)?@(public|private|protected)[[:space:]]+@method[[:space:]]+[A-Za-z_][A-Za-z0-9_]*([[:space:]]+(@[A-Za-z_][A-Za-z0-9_]*\*?[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*)*[[:space:]]*\{' <<< "$line"; then
-				if [[ $ignore_next_element -eq 1 ]]; then
+				if [[ $ignore_next_element -eq 1 ]] || [[ $ignoring_entire_class -eq 1 ]]; then
 					ignore_next_element=0
 					latestComment=""
 					continue
