@@ -2,7 +2,7 @@
 @include_once "Method.bpp"
 @include_once "Member.bpp"
 
-@include_once "../modified-stdlib/TypedArray"
+@include_once <TypedArray>
 
 ## Represents a Bash++ class
 @class Class : Element {

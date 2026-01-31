@@ -50,6 +50,11 @@ Or a contiguous (uninterrupted) block of such lines.
 	@public @method doSomething arg1 arg2 {
 	}
 }
+
+# The next class should not appear in the documentation
+## @ignore
+@class HelperClass {
+}
 ```
 
 ### Supported Commands Inside Autodoc Comments
@@ -57,6 +62,7 @@ Or a contiguous (uninterrupted) block of such lines.
  - `@param <name> <description>`: Documents a method parameter
  - `@returns <description>`: Documents the exit status codes a method may return
  - `@outputs <description>`: Documents what the method outputs to stdout
+ - `@ignore`: Don't document the next class, method, or data member
 
 `@returns` and `@outputs` may also be written as `@return` and `@output`, respectively.
 

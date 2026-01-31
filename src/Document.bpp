@@ -1,7 +1,7 @@
 @include_once "elements/Class.bpp"
 @include_once "formatting/XML.bpp"
 @include_once "formatting/MD.bpp"
-@include_once "modified-stdlib/TypedArray"
+@include_once <TypedArray>
 
 @class Document {
 	## The directory to scan for source files.
@@ -63,6 +63,8 @@
 		local fileContents outputLines
 		local currently_parsing_multiline_comment=0
 
+		local ignore_next_element=0
+
 		# Specifically for METHOD processing:
 		local latestReturnsComment="" latestOutputsComment=""
 		# Associative array: parameter name -> description
@@ -92,6 +94,7 @@
 				# '@param' is used to document method parameters
 				# '@return' or '@returns' is used to document method exit status codes
 				# '@output' or '@outputs' is used to document method output values (stdout)
+				# '@ignore' is used to tell autodoc to ignore the next element
 				local first_word=@(awk '{print $1}' <<< "$comment_text")
 				case "$first_word" in
 					"\@param")
@@ -114,6 +117,11 @@
 						latestOutputsComment=@(echo "$comment_text" | sed -E 's/^\@(output|outputs)[[:space:]]+//')
 						continue
 						;;
+					"\@ignore")
+						# Set a flag to ignore the next element (class, method, or member)
+						ignore_next_element=1
+						continue
+						;;
 					*)
 						# Regular comment, continue processing below
 						;;
@@ -134,6 +142,11 @@
 			# Do we see a class declaration on this line?
 			# Scan for '@class ClassName [: parentClassName] {'
 			if grep -qE '^[[:space:]]*@class[[:space:]]+[A-Za-z_][A-Za-z0-9_]*([[:space:]]*:[[:space:]]*[A-Za-z_][A-Za-z0-9_]*)?[[:space:]]*\{' <<< "$line"; then
+				if [[ $ignore_next_element -eq 1 ]]; then
+					ignore_next_element=0
+					latestComment=""
+					continue
+				fi
 				# Extract class name and optional parent class name
 				local class_declaration=@(grep -oE '^[[:space:]]*@class[[:space:]]+[A-Za-z_][A-Za-z0-9_]*([[:space:]]*:[[:space:]]*[A-Za-z_][A-Za-z0-9_]*)?[[:space:]]*\{' <<< "$line")
 				local class_name=@(echo "$class_declaration" | grep -oE '[A-Za-z_][A-Za-z0-9_]*' | head -n 2 | tail -n 1)
@@ -171,6 +184,11 @@
 			# Scan for '@(public|private|protected) identifier'
 			# OR: '@(public|private|protected) @Type[*] identifier'
 			if grep -qE '^[[:space:]]*@(public|private|protected)[[:space:]]+(@[A-Za-z_][A-Za-z0-9_]*\*?[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*(=.+)?$' <<< "$line"; then
+				if [[ $ignore_next_element -eq 1 ]]; then
+					ignore_next_element=0
+					latestComment=""
+					continue
+				fi
 				if @this.classes.empty; then
 					>&2 echo "Error: Found member declaration outside of class in file '$file' [line $line_number]"
 					continue
@@ -214,6 +232,11 @@
 			# Do we see a method declaration on this line?
 			# Scan for '[@virtual] @(public|private|protected) @method methodName [param1 @Type* param2 ...] {'
 			if grep -qE '^[[:space:]]*(@virtual[[:space:]]+)?@(public|private|protected)[[:space:]]+@method[[:space:]]+[A-Za-z_][A-Za-z0-9_]*([[:space:]]+(@[A-Za-z_][A-Za-z0-9_]*\*?[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*)*[[:space:]]*\{' <<< "$line"; then
+				if [[ $ignore_next_element -eq 1 ]]; then
+					ignore_next_element=0
+					latestComment=""
+					continue
+				fi
 				if @this.classes.empty; then
 					>&2 echo "Error: Found method declaration outside of class in file '$file' [line $line_number]"
 					continue
