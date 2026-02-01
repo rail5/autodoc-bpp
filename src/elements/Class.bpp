@@ -25,6 +25,9 @@
 	## An array of pointers to Member objects that represent the data members of the class.
 	@public @TypedArray members
 
+	@public inheritanceResolved=0
+	@public inheritanceResolving=0
+
 	@constructor {
 		@this.methods.set_type "Method"
 		@this.members.set_type "Member"

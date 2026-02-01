@@ -11,11 +11,9 @@
 	## The directory to output the documentation files to.
 	@private outputDirectory
 	@private @TypedArray classes
-	@private @TypedArray classes_with_unknown_parents
 
 	@constructor {
 		@this.classes.set_type "Class"
-		@this.classes_with_unknown_parents.set_type "Class"
 	}
 
 	@public @method setSourceDirectory directory {
@@ -55,6 +53,47 @@
 			fi
 		done
 		return 1
+	}
+
+	@private @method resolveInheritanceForClass @Class* class_ {
+		if [[ @class_ == @nullptr ]]; then
+			return 1
+		fi
+
+		if [[  @class_.inheritanceResolved -eq 1 ]]; then
+			return 0 # Already resolved
+		fi
+
+		if [[ @class_.inheritanceResolving -eq 1 ]]; then
+			>&2 echo "Warning: Detected inheritance cycle involving class '@{class_.name}'"
+			>&2 echo "         In order words, '@{class_.name}' is an ancestor of itself."
+			return 1
+		fi
+
+		@class_.inheritanceResolving=1
+
+		if [[ -z "@class_.parentClassName" ]]; then
+			# No parent to resolve
+			@class_.inheritanceResolved=1
+			@class_.inheritanceResolving=0
+			return 0
+		fi
+
+		@Class* parent_ptr=@dynamic_cast<Class> @(@this.findClassByName "@{class_.parentClassName}")
+		if [[ @parent_ptr == @nullptr ]]; then
+			>&2 echo "Warning: Could not find parent class '@{class_.parentClassName}' for class '@{class_.name}'"
+			@class_.inheritanceResolving=0
+			return 1
+		fi
+
+		# Make sure the parent has been fully resolved FIRST
+		@this.resolveInheritanceForClass "@parent_ptr" >/dev/null
+
+		# Now inherit from the fully-built parent
+		@class_.inherit "@parent_ptr" >/dev/null
+		@class_.inheritanceResolved=1
+		@class_.inheritanceResolving=0
+		>&2 echo "Inherited parent class '@{class_.parentClassName}' for class '@{class_.name}'"
 	}
 
 	## Scans a single file for class definitions and processes them.
@@ -172,11 +211,7 @@
 				@class_.sourceFile="@(basename $file)"
 				if [[ -n "$parent_class_name" ]]; then
 					@class_.parentClassName="$parent_class_name"
-					if ! @class_.inherit "@(@this.findClassByName "$parent_class_name")"; then
-						# Parent class not found yet, will need to resolve later
-						>&2 echo "Note: Parent class '$parent_class_name' for class '$class_name' not found yet, will resolve later"
-						@this.classes_with_unknown_parents.push "@class_"
-					fi
+					# We will resolve inheritance chains at the end
 				fi
 				# Otherwise, the parent has been set via inherit method
 				# And all members/methods have been inherited (apart from those overridden)
@@ -366,13 +401,8 @@
 		done
 
 		# If any classes had unknown parents, try to resolve them now
-		for c in @this.classes_with_unknown_parents.all; do
-			@Class* class_="$c"
-			if ! @class_.inherit "@(@this.findClassByName "@class_.parentClassName")"; then
-				>&2 echo "Warning: Could not resolve parent class '@{class_.parentClassName}' for class '@{class_.name}'"
-			else
-				>&2 echo "Resolved parent class '@{class_.parentClassName}' for class '@{class_.name}'"
-			fi
+		for c in @this.classes.all; do
+			@this.resolveInheritanceForClass "$c" >/dev/null
 		done
 	}
 
